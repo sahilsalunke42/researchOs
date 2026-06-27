@@ -6,8 +6,8 @@ from app.services.llmService import ask as ask_llm
 router = APIRouter()
 
 @router.post("/ask")
-async def ask(request: AskRequest):
-    answer = await ask_llm(request.prompt)
+def ask(request: AskRequest):
+    answer = ask_llm(request.prompt)
     return AskResponse(
         response=answer
     )
