@@ -1,0 +1,8 @@
+Write a concise research report using only the provided context.
+Include: executive summary, contributions, limitations, research gaps, future work, and references.
+
+Context:
+{context}
+
+Topic:
+{topic}
