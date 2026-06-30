@@ -1,8 +1,9 @@
 from pydantic import BaseModel, Field, field_validator
 
 
-class ReportRequest(BaseModel):
+class ResearchRequest(BaseModel):
     topic: str = Field(..., min_length=1, max_length=500)
+    paper_limit: int = Field(default=3, ge=1, le=10)
 
     @field_validator("topic")
     @classmethod
@@ -13,5 +14,8 @@ class ReportRequest(BaseModel):
         return normalized
 
 
-class ReportResponse(BaseModel):
+class ResearchResponse(BaseModel):
+    topic: str
+    papers_processed: int
+    total_chunks: int
     report: str

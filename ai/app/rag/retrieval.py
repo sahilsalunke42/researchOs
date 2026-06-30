@@ -5,12 +5,13 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+from app.config.settings import QDRANT_COLLECTION
 from app.rag.embeddings import generate_embeddings
 from app.vectordb.qdrantClient import client
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_COLLECTION_NAME = "research_papers"
+DEFAULT_COLLECTION_NAME = QDRANT_COLLECTION
 
 
 @dataclass(frozen=True)
