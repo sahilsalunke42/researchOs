@@ -1,6 +1,22 @@
 from __future__ import annotations
 
-from typing import Iterable
+import re
+
+
+REFERENCE_HEADINGS = (
+    r"^\s*references\s*$",
+    r"^\s*bibliography\s*$",
+    r"^\s*works cited\s*$",
+)
+
+
+def strip_references(text: str) -> str:
+    lines = text.split("\n")
+    for index, line in enumerate(lines):
+        normalized = line.strip().casefold()
+        if any(re.match(pattern, normalized) for pattern in REFERENCE_HEADINGS):
+            return "\n".join(lines[:index]).strip()
+    return text.strip()
 
 
 def chunk_text(text: str, chunk_size: int = 800, overlap: int = 120) -> list[str]:

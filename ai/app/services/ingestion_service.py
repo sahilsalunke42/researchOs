@@ -11,15 +11,16 @@ from typing import Any, Callable, Iterable
 import requests
 from qdrant_client.models import Distance, PointStruct, VectorParams
 
-from app.rag.chunking import chunk_text
-from app.rag.embeddings import generate_embeddings
+from app.config.settings import QDRANT_COLLECTION
+from app.rag.chunking import chunk_text, strip_references
+from app.rag.embeddings import generate_embeddings_batch
 from app.rag.ingestion import extract_pdf_text
 from app.services.paper_service import Paper, dedupe_papers
 from app.vectordb.qdrantClient import client
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_COLLECTION_NAME = "research_papers"
+DEFAULT_COLLECTION_NAME = QDRANT_COLLECTION
 
 
 @dataclass(frozen=True)
@@ -37,13 +38,19 @@ def paper_key(paper: Paper) -> str:
     return f"{paper.title.casefold().strip()}|{authors}|{paper.year or ''}"
 
 
+def sanitize_filename(value: str) -> str:
+    sanitized = re.sub(r"[^\w.\-]+", "_", value.strip())
+    return sanitized[:120] or "paper"
+
+
 def clean_extracted_text(text: str) -> str:
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     text = re.sub(r"(?<=\w)-\n(?=\w)", "", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     lines = [re.sub(r"\s+", " ", line).strip() for line in text.split("\n")]
     cleaned = "\n".join(line for line in lines if line)
-    return re.sub(r"[ \t]{2,}", " ", cleaned).strip()
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned).strip()
+    return strip_references(cleaned)
 
 
 def _paper_from_pdf_url(paper: Paper, pdf_url: str | None) -> str:
@@ -124,10 +131,10 @@ def prepare_points(
     if not chunks:
         return []
 
-    points: list[PointStruct] = []
     total_chunks = len(chunks)
-    for index, chunk in enumerate(chunks, start=1):
-        vector = generate_embeddings(chunk)
+    vectors = generate_embeddings_batch(chunks)
+    points: list[PointStruct] = []
+    for index, (chunk, vector) in enumerate(zip(chunks, vectors, strict=True), start=1):
         payload = build_payload(
             paper,
             source_url=source_url,
@@ -189,17 +196,21 @@ def ingest_papers(
     for paper in dedupe_papers(list(papers)):
         pdf_url = pdf_url_resolver(paper) if pdf_url_resolver else None
         source_url = _paper_from_pdf_url(paper, pdf_url)
-        with tempfile.TemporaryDirectory() as temp_dir:
-            pdf_path = Path(temp_dir) / f"{paper_key(paper)}.pdf"
-            download_pdf(source_url, pdf_path)
-            results.append(
-                ingest_pdf_file(
-                    paper,
-                    pdf_path,
-                    collection_name=collection_name,
-                    source_url=source_url,
-                    chunk_size=chunk_size,
-                    overlap=overlap,
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                filename = sanitize_filename(paper_key(paper))
+                pdf_path = Path(temp_dir) / f"{filename}.pdf"
+                download_pdf(source_url, pdf_path)
+                results.append(
+                    ingest_pdf_file(
+                        paper,
+                        pdf_path,
+                        collection_name=collection_name,
+                        source_url=source_url,
+                        chunk_size=chunk_size,
+                        overlap=overlap,
+                    )
                 )
-            )
+        except Exception:
+            logger.exception("Failed to ingest paper: %s", paper.title)
     return results
