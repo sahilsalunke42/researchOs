@@ -1,5 +1,36 @@
-Write a concise research report using only the provided context.
-Include: executive summary, contributions, limitations, research gaps, future work, and references.
+Generate a markdown research intelligence report for the given topic using ONLY the provided context.
+
+Hard constraints:
+1) Do not hallucinate or use outside knowledge.
+2) If context is missing for a section, explicitly state the evidence is insufficient.
+3) Keep statements tied to source evidence.
+4) Output valid markdown.
+
+Required structure and headings:
+# Executive Summary
+# Paper Summaries
+- One subsection per major paper with key objective, method, findings, and limitations.
+# Comparative Analysis
+- Compare methodologies, datasets, and evaluation metrics.
+# Common Methodologies
+# Common Datasets
+# Common Evaluation Metrics
+# Strengths and Limitations
+# Emerging Trends
+# Research Gaps
+- Include underexplored topics, missing datasets, weak evaluation strategies, and future opportunities when supported.
+# Literature Review
+## Introduction
+## Existing Work
+## Comparative Analysis
+## Research Trends
+## Limitations
+## Research Gaps
+## Future Scope
+# Final Research Report
+- Consolidated narrative fit for export to markdown/PDF later.
+# References
+- Keep inline citations like [1], [2] in the report body where possible.
 
 Context:
 {context}

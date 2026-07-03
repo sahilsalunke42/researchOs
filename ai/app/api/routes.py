@@ -4,7 +4,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException
 
-from app.schemas.ingest import IngestRequest, IngestResponse
+from app.schemas.ingest import IngestRequest, IngestResponse, IngestSelectedRequest
 from app.schemas.papers import PaperSearchRequest, PaperSearchResponse
 from app.schemas.report import ReportRequest, ReportResponse
 from app.schemas.request import AskRequest
@@ -12,7 +12,7 @@ from app.schemas.response import AskResponse
 from app.schemas.research import ResearchRequest, ResearchResponse
 from app.services.rag_service import answer_question
 from app.services.report_service import generate_report
-from app.services.research_service import ingest_query, run_research, search_papers
+from app.services.research_service import ingest_query, ingest_selected_papers, run_research, search_papers
 from app.vectordb.qdrantClient import client
 
 logger = logging.getLogger(__name__)
@@ -72,6 +72,15 @@ def ingest(request: IngestRequest) -> IngestResponse:
     except Exception as exc:
         logger.exception("Failed to ingest papers")
         raise HTTPException(status_code=502, detail="Failed to ingest papers") from exc
+
+
+@router.post("/ingest/selected", response_model=IngestResponse)
+def ingest_selected(request: IngestSelectedRequest) -> IngestResponse:
+    try:
+        return ingest_selected_papers(request.papers)
+    except Exception as exc:
+        logger.exception("Failed to ingest selected papers")
+        raise HTTPException(status_code=502, detail="Failed to ingest selected papers") from exc
 
 
 @router.post("/research", response_model=ResearchResponse)
