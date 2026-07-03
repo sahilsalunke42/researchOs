@@ -4,9 +4,11 @@ import hashlib
 import logging
 import re
 import tempfile
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable
+from urllib.parse import urlparse
 
 import requests
 from qdrant_client.models import Distance, PointStruct, VectorParams
@@ -59,10 +61,16 @@ def _paper_from_pdf_url(paper: Paper, pdf_url: str | None) -> str:
     if paper.url and paper.url.lower().endswith(".pdf"):
         return paper.url
     if paper.source == "arxiv":
-        match = re.search(r"arxiv\.org/(?:abs|pdf)/([^?#/]+)", paper.url or "")
-        if match:
-            arxiv_id = match.group(1).removesuffix(".pdf")
-            return f"https://arxiv.org/pdf/{arxiv_id}.pdf"
+        parsed = urlparse(paper.url or "")
+        path = parsed.path.strip("/")
+        arxiv_id: str | None = None
+        if path.startswith("abs/"):
+            arxiv_id = path[len("abs/") :]
+        elif path.startswith("pdf/"):
+            arxiv_id = path[len("pdf/") :]
+        if arxiv_id:
+            normalized_id = arxiv_id.removesuffix(".pdf")
+            return f"https://arxiv.org/pdf/{normalized_id}.pdf"
     raise ValueError(f"no downloadable PDF URL for paper: {paper.title}")
 
 
@@ -90,7 +98,8 @@ def ensure_collection(collection_name: str, vector_size: int) -> None:
 def build_point_id(paper: Paper, chunk_index: int, chunk_text_value: str) -> str:
     key = paper_key(paper)
     digest = hashlib.sha1(f"{key}:{chunk_index}:{chunk_text_value}".encode("utf-8")).hexdigest()
-    return digest
+    # Qdrant accepts point IDs as unsigned integers or UUIDs; use deterministic UUIDs for idempotent upserts.
+    return str(uuid.uuid5(uuid.NAMESPACE_DNS, digest))
 
 
 def build_payload(
@@ -175,11 +184,15 @@ def ingest_pdf_file(
         return IngestionResult(paper_key=paper_key(paper), chunk_count=0, point_ids=(), source_url=resolved_source_url)
 
     ensure_collection(collection_name, len(points[0].vector))
-    client.upsert(collection_name=collection_name, points=points)
+    existing = client.retrieve(collection_name=collection_name, ids=[point.id for point in points], with_payload=False)
+    existing_ids = {str(point.id) for point in existing}
+    new_points = [point for point in points if str(point.id) not in existing_ids]
+    if new_points:
+        client.upsert(collection_name=collection_name, points=new_points)
     return IngestionResult(
         paper_key=paper_key(paper),
-        chunk_count=len(points),
-        point_ids=tuple(str(point.id) for point in points),
+        chunk_count=len(new_points),
+        point_ids=tuple(str(point.id) for point in new_points),
         source_url=resolved_source_url,
     )
 
