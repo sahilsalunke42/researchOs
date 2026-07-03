@@ -1,0 +1,112 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  name         String
+  createdAt    DateTime  @default(now())
+  projects     Project[]
+}
+
+model Project {
+  id         String        @id @default(uuid())
+  userId     String
+  name       String
+  topic      String
+  paperLimit Int           @default(20)
+  status     ProjectStatus @default(QUEUED)
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+  user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  papers     Paper[]
+  reports    Report[]
+  agentRuns  AgentRun[]
+
+  @@index([userId])
+}
+
+enum ProjectStatus {
+  QUEUED
+  DISCOVERING
+  INGESTING
+  REPORTING
+  COMPLETE
+  ERROR
+}
+
+model Paper {
+  id             String      @id @default(uuid())
+  projectId      String
+  externalId     String
+  source         PaperSource
+  title          String
+  authors        String[]
+  year           Int?
+  venue          String?
+  abstractText   String?
+  pdfUrl         String?
+  citationCount  Int         @default(0)
+  summaryProblem String?
+  summaryMethod  String?
+  summaryDataset String?
+  summaryResults String?
+  summaryLimits  String?
+  bookmarked     Boolean     @default(false)
+  createdAt      DateTime    @default(now())
+  project        Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([externalId])
+}
+
+enum PaperSource {
+  SEMANTIC_SCHOLAR
+  ARXIV
+}
+
+model Report {
+  id         String   @id @default(uuid())
+  projectId  String   @unique
+  content    String
+  isPublic   Boolean  @default(false)
+  shareToken String?  @unique
+  createdAt  DateTime @default(now())
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+}
+
+model AgentRun {
+  id           String      @id @default(uuid())
+  projectId    String
+  agentName    AgentName
+  status       AgentStatus @default(PENDING)
+  startedAt    DateTime?
+  completedAt  DateTime?
+  durationMs   Int?
+  errorMessage String?
+  metadata     Json?
+  project      Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+enum AgentName {
+  DISCOVERY
+  INGESTION
+  REPORT
+}
+
+enum AgentStatus {
+  PENDING
+  RUNNING
+  COMPLETE
+  ERROR
+  SKIPPED
+}
