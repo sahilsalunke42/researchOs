@@ -3,7 +3,7 @@ import * as apiModule from '@/lib/api';
 import { getSession, login, register, logout, serverGetSession } from '@/lib/auth';
 
 describe('auth helpers', () => {
-  beforeEach(() => vi.restoreAllMocks());
+  beforeEach(() => { vi.restoreAllMocks(); });
 
   it('getSession returns user when /me succeeds', async () => {
     vi.spyOn(apiModule.api, 'get').mockResolvedValue({ user: { id: '1', email: 'a@b.com', name: 'A', createdAt: 'x' } });
