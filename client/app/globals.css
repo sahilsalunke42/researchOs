@@ -1,0 +1,36 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Light mode */
+  --bg-base:      0 0% 98%;    /* #FAFAFA */
+  --bg-surface:   0 0% 100%;   /* #FFFFFF */
+  --bg-subtle:    240 5% 96%;  /* #F4F4F5 */
+  --border:       240 6% 90%;  /* #E4E4E7 */
+  --text-primary: 240 10% 4%;  /* #09090B */
+  --text-muted:   240 4% 46%;  /* #71717A */
+  --accent:       217 91% 60%; /* #2563EB */
+  --accent-green: 142 76% 36%; /* #16A34A */
+  --accent-amber: 32 95% 44%;  /* #D97706 */
+  --accent-red:   0 84% 51%;   /* #DC2626 */
+}
+
+.dark {
+  --bg-base:      0 0% 4%;
+  --bg-surface:   0 0% 7%;
+  --bg-subtle:    0 0% 10%;
+  --border:       240 4% 16%;
+  --text-primary: 0 0% 98%;
+  --text-muted:   240 5% 65%;
+  --accent:       217 91% 60%;
+  --accent-green: 142 76% 36%;
+  --accent-amber: 32 95% 44%;
+  --accent-red:   0 84% 51%;
+}
+
+html, body {
+  height: 100%;
+  background-color: hsl(var(--bg-base));
+  color: hsl(var(--text-primary));
+}
