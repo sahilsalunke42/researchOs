@@ -27,16 +27,12 @@ export async function logout(): Promise<void> {
 
 export async function serverGetSession(cookieHeader: string): Promise<UserDTO | null> {
   const base = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:4000';
-  try {
-    const res = await fetch(`${base}/api/auth/me`, {
-      headers: cookieHeader ? { cookie: cookieHeader } : undefined,
-      cache: 'no-store'
-    });
-    if (res.status === 401) return null;
-    if (!res.ok) return null;
-    const data = (await res.json()) as { user: UserDTO };
-    return data.user;
-  } catch {
-    return null;
-  }
+  const res = await fetch(`${base}/api/auth/me`, {
+    headers: cookieHeader ? { cookie: cookieHeader } : undefined,
+    cache: 'no-store'
+  });
+  if (res.status === 401) return null;
+  if (!res.ok) throw new Error(`serverGetSession failed: ${res.status}`);
+  const data = (await res.json()) as { user: UserDTO };
+  return data.user;
 }

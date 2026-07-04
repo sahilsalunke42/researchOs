@@ -49,4 +49,14 @@ describe('auth helpers', () => {
     );
     expect(user?.email).toBe('a@b.com');
   });
+
+  it('serverGetSession returns null on 401', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 401 }));
+    expect(await serverGetSession('key=val')).toBeNull();
+  });
+
+  it('serverGetSession throws on non-401 non-ok', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }));
+    await expect(serverGetSession('key=val')).rejects.toThrow(/serverGetSession failed: 500/);
+  });
 });
