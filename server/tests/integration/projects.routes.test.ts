@@ -14,7 +14,7 @@ async function reset() {
 async function auth() {
   const email = `u${Math.random()}@x.com`;
   const reg = await request(app).post('/api/auth/register').send({ email, password: 'password123', name: 'U' });
-  const cookie = (reg.headers['set-cookie'] as unknown as string[])[0];
+  const cookie = (reg.headers['set-cookie'] as unknown as string[])[0]!;
   return { cookie, userId: reg.body.user.id };
 }
 

@@ -56,7 +56,7 @@ describe('GET /api/auth/me', () => {
 
   it('200 with cookie', async () => {
     const reg = await request(app).post('/api/auth/register').send({ email: 'a@b.com', password: 'password123', name: 'A' });
-    const cookie = (reg.headers['set-cookie'] as unknown as string[])[0];
+    const cookie = (reg.headers['set-cookie'] as unknown as string[])[0]!;
     const res = await request(app).get('/api/auth/me').set('Cookie', cookie);
     expect(res.status).toBe(200);
     expect(res.body.user.email).toBe('a@b.com');

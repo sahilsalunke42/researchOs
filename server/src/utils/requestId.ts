@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import type { Request, Response, NextFunction } from 'express';
 
-declare module 'express-serve-static-core' {
-  interface Request {
-    id: string;
-    userId?: string;
+declare global {
+  namespace Express {
+    interface Request {
+      id: string;
+      userId?: string;
+    }
   }
 }
 
