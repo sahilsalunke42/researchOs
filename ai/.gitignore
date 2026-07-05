@@ -1,3 +1,10 @@
 .env
 venv/
 COPILOT_INSTRUSCTIONS_MASTER.md/
+tests/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+.pytest_cache/
