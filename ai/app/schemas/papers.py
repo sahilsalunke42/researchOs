@@ -22,6 +22,8 @@ class PaperItem(BaseModel):
     source: str
     url: str | None = None
     abstract: str | None = None
+    external_id: str | None = None
+    relevance_score: float | None = None
 
 
 class PaperSearchResponse(BaseModel):

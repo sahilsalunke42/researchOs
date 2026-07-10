@@ -6,6 +6,7 @@ ollama
 langchain
 langchain-community
 langchain-core
+langgraph
 
 langchain-qdrant
 
