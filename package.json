@@ -1,0 +1,17 @@
+{
+  "name": "researchos",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@9.7.0",
+  "scripts": {
+    "dev:server": "pnpm --filter server dev",
+    "dev:client": "pnpm --filter client dev",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint"
+  },
+  "engines": { "node": ">=20.0.0" },
+  "devDependencies": {
+    "mammoth": "^1.12.0"
+  }
+}
