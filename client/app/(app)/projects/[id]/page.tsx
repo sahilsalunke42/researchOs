@@ -27,7 +27,12 @@ export default function ProjectWorkspacePage({ params }: { params: { id: string 
           <h1 className="text-2xl font-semibold mt-1">{project.name}</h1>
         </div>
       </div>
-      <WorkspaceTabs projectId={project.id} />
+      <WorkspaceTabs
+        projectId={project.id}
+        projectName={project.name}
+        topic={project.topic}
+        paperLimit={project.paperLimit}
+      />
     </div>
   );
 }

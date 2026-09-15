@@ -9,12 +9,14 @@ describe('env config', () => {
     process.env.DATABASE_URL = 'postgresql://u:p@localhost:5432/db';
     process.env.JWT_SECRET = 'a'.repeat(32);
     process.env.AI_SERVICE_URL = 'http://localhost:8000';
+    process.env.AI_SERVICE_TIMEOUT_MS = '300000';
     process.env.PORT = '4000';
     process.env.NODE_ENV = 'development';
     process.env.CORS_ORIGIN = 'http://localhost:3000';
     const { loadEnv } = await import('../../src/config/env.js');
     const env = loadEnv();
     expect(env.PORT).toBe(4000);
+    expect(env.AI_SERVICE_TIMEOUT_MS).toBe(300000);
     expect(env.JWT_SECRET.length).toBeGreaterThanOrEqual(32);
   });
 

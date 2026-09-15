@@ -32,4 +32,5 @@ export interface ProjectDTO {
   createdAt: string;
   updatedAt: string;
   agentRuns: AgentRunDTO[];
+  reportContent: string | null;
 }

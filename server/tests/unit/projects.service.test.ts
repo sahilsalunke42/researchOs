@@ -22,7 +22,9 @@ describe('projects.service', () => {
     const p = await projectsService.createProject(userId, { name: 'P', topic: 'T', paperLimit: 20 });
     expect(p.status).toBe('QUEUED');
     expect(p.paperLimit).toBe(20);
-    expect(p.agentRuns).toEqual([]);
+    expect(p.agentRuns).toHaveLength(3);
+    expect(new Set(p.agentRuns.map(run => run.agentName))).toEqual(new Set(['DISCOVERY', 'INGESTION', 'REPORT']));
+    expect(p.agentRuns.every(run => run.status === 'PENDING')).toBe(true);
   });
 
   it('listProjects returns own projects ordered by updatedAt desc', async () => {

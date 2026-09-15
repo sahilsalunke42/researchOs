@@ -11,5 +11,6 @@ export const httpErrors = {
   forbidden: (message = 'Forbidden', code = 'FORBIDDEN') => new HttpError(403, code, message),
   notFound: (message = 'Not found', code = 'NOT_FOUND') => new HttpError(404, code, message),
   conflict: (message = 'Conflict', code = 'CONFLICT') => new HttpError(409, code, message),
+  badGateway: (message = 'Bad gateway', code = 'BAD_GATEWAY') => new HttpError(502, code, message),
   internal: (message = 'Internal server error', code = 'INTERNAL') => new HttpError(500, code, message)
 };
