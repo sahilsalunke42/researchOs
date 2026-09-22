@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import logging
@@ -29,112 +28,309 @@ class SourceCitation:
     doi: str | None
     url: str | None
     source: str | None
+    page: int | None
 
 
-def _iter_points(results: Any) -> list[Any]:
-    points = getattr(results, "points", results)
-    return list(points or [])
+def _iter_points(
+    results: Any,
+) -> list[Any]:
+
+    points = getattr(
+        results,
+        "points",
+        results,
+    )
+
+    return list(
+        points or []
+    )
 
 
 def retrieve_context(
     query: str,
     limit: int = 5,
     collection_name: str = DEFAULT_COLLECTION_NAME,
+    paper_keys: list[str] | None = None,
 ) -> list[RetrievedChunk]:
-    query = query.strip()
-    if not query:
-        raise ValueError("query must not be empty")
-    if limit <= 0:
-        raise ValueError("limit must be greater than zero")
 
-    query_vector = generate_embeddings(query)
+    query = query.strip()
+
+    if not query:
+        raise ValueError(
+            "query must not be empty"
+        )
+
+    if limit <= 0:
+        raise ValueError(
+            "limit must be greater than zero"
+        )
+
+    query_vector = generate_embeddings(
+        query
+    )
+
+    query_filter = None
+
+    if paper_keys:
+        from qdrant_client.models import (
+            FieldCondition,
+            Filter,
+            MatchAny,
+        )
+
+        query_filter = Filter(
+            must=[
+                FieldCondition(
+                    key="paper_key",
+                    match=MatchAny(
+                        any=paper_keys
+                    ),
+                )
+            ]
+        )
+
     results = client.query_points(
         collection_name=collection_name,
         query=query_vector,
         limit=limit,
+        query_filter=query_filter,
         with_payload=True,
     )
 
     chunks: list[RetrievedChunk] = []
-    for point in _iter_points(results):
-        payload = dict(getattr(point, "payload", {}) or {})
-        text = payload.get("text") or payload.get("chunk_text")
+
+    for point in _iter_points(
+        results
+    ):
+
+        payload = dict(
+            getattr(
+                point,
+                "payload",
+                {}
+            )
+            or {}
+        )
+
+        text = (
+            payload.get("text")
+            or payload.get("chunk_text")
+        )
+
         if not text:
-            logger.warning("Skipping retrieved point without text payload")
+            logger.warning(
+                "Skipping retrieved point without text payload"
+            )
             continue
 
         chunks.append(
             RetrievedChunk(
                 text=str(text),
-                score=getattr(point, "score", None),
+                score=getattr(
+                    point,
+                    "score",
+                    None,
+                ),
                 payload=payload,
             )
         )
 
+    logger.info(
+        "Retrieved %d grounded candidate chunks",
+        len(chunks),
+    )
+
     return chunks
 
 
-def assemble_context(chunks: list[RetrievedChunk]) -> str:
+def assemble_context(
+    chunks: list[RetrievedChunk],
+) -> str:
+
     if not chunks:
         return ""
 
     sections: list[str] = []
-    for index, chunk in enumerate(chunks, start=1):
+
+    for index, chunk in enumerate(
+        chunks,
+        start=1,
+    ):
+
         payload = chunk.payload
-        header_bits = [f"Source {index}"]
-        for key in ("title", "authors", "year"):
-            value = payload.get(key)
+
+        header_bits = [
+            f"Source {index}"
+        ]
+
+        for key in (
+            "title",
+            "authors",
+            "year",
+            "page",
+        ):
+
+            value = payload.get(
+                key
+            )
+
             if value:
-                header_bits.append(str(value))
-        sections.append(f"{' | '.join(header_bits)}\n{chunk.text}".strip())
+                header_bits.append(
+                    str(value)
+                )
 
-    return "\n\n".join(sections)
+        sections.append(
+            f"{' | '.join(header_bits)}\n"
+            f"{chunk.text}".strip()
+        )
+
+    return "\n\n".join(
+        sections
+    )
 
 
-def select_grounded_chunks(chunks: list[RetrievedChunk], min_score: float = 0.3) -> list[RetrievedChunk]:
+def select_grounded_chunks(
+    chunks: list[RetrievedChunk],
+    min_score: float = 0.3,
+) -> list[RetrievedChunk]:
+
     grounded: list[RetrievedChunk] = []
+
     for chunk in chunks:
+
         score = chunk.score
-        if score is None or score >= min_score:
-            grounded.append(chunk)
+
+        if (
+            score is None
+            or score >= min_score
+        ):
+            grounded.append(
+                chunk
+            )
+
     return grounded
 
 
-def extract_sources(chunks: list[RetrievedChunk]) -> list[SourceCitation]:
+def extract_sources(
+    chunks: list[RetrievedChunk],
+) -> list[SourceCitation]:
+
     sources: list[SourceCitation] = []
-    seen: set[tuple[str, str | None, int | None]] = set()
+
+    seen: set[
+        tuple[str, str | None, int | None]
+    ] = set()
+
     for chunk in chunks:
+
         payload = chunk.payload
-        title = str(payload.get("title") or "").strip()
+
+        title = str(
+            payload.get("title")
+            or ""
+        ).strip()
+
         if not title:
             continue
-        doi = payload.get("doi")
-        year_value = payload.get("year")
+
+        doi = payload.get(
+            "doi"
+        )
+
+        year_value = payload.get(
+            "year"
+        )
+
         try:
-            year = int(year_value) if year_value is not None else None
-        except (TypeError, ValueError):
+            year = (
+                int(year_value)
+                if year_value is not None
+                else None
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
             year = None
-        key = (title.casefold(), str(doi) if doi else None, year)
+
+        key = (
+            title.casefold(),
+            str(doi)
+            if doi
+            else None,
+            year,
+        )
+
         if key in seen:
             continue
+
         seen.add(key)
-        authors_value = payload.get("authors")
-        if isinstance(authors_value, list):
-            authors = tuple(str(author).strip() for author in authors_value if str(author).strip())
+
+        authors_value = payload.get(
+            "authors"
+        )
+
+        if isinstance(
+            authors_value,
+            list,
+        ):
+
+            authors = tuple(
+                str(author).strip()
+                for author in authors_value
+                if str(author).strip()
+            )
+
         else:
             authors = ()
+
         sources.append(
             SourceCitation(
                 title=title,
                 authors=authors,
                 year=year,
-                doi=str(doi) if doi else None,
-                url=str(payload.get("source_url") or payload.get("url") or "") or None,
-                source=str(payload.get("source") or "") or None,
+                doi=(
+                    str(doi)
+                    if doi
+                    else None
+                ),
+                url=str(
+                    payload.get(
+                        "source_url"
+                    )
+                    or payload.get(
+                        "url"
+                    )
+                    or ""
+                )
+                or None,
+                source=str(
+                    payload.get(
+                        "source"
+                    )
+                    or ""
+                )
+                or None,
+                page=(
+                    int(payload["page"])
+                    if payload.get("page") is not None and str(payload.get("page")).isdigit()
+                    else None
+                ),
             )
         )
+
     return sources
 
 
-def retrieveContext(query: str, limit: int = 5):
-    return [chunk.text for chunk in retrieve_context(query=query, limit=limit)]
+def retrieveContext(
+    query: str,
+    limit: int = 5,
+):
+
+    return [
+        chunk.text
+        for chunk in retrieve_context(
+            query=query,
+            limit=limit,
+        )
+    ]
