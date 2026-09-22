@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from sentence_transformers import SentenceTransformer
 
-model = SentenceTransformer("BAAI/bge-small-en-v1.5")
+from app.config.settings import EMBEDDING_LOCAL_FILES_ONLY, EMBEDDING_MODEL
+
+model = SentenceTransformer(
+    EMBEDDING_MODEL,
+    local_files_only=EMBEDDING_LOCAL_FILES_ONLY,
+)
 
 
 def generate_embeddings(text: str) -> list[float]:

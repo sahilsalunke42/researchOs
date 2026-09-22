@@ -21,6 +21,7 @@ class PaperItem(BaseModel):
     doi: str | None = None
     source: str
     url: str | None = None
+    pdf_url: str | None = None
     abstract: str | None = None
     external_id: str | None = None
     relevance_score: float | None = None
