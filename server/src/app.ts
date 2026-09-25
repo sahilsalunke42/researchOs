@@ -23,6 +23,10 @@ export function createApp(): Express {
   app.use('/api/auth', authRoutes);
   app.use('/api/projects', projectsRoutes);
 
+  app.use((_req, res) => {
+    res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Endpoint not found' } });
+  });
+
   app.use(errorMiddleware);
   return app;
 }

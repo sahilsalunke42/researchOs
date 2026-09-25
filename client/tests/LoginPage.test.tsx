@@ -13,8 +13,8 @@ describe('LoginPage', () => {
   it('submits credentials and navigates on success', async () => {
     loginMock.mockResolvedValueOnce({ id: '1', email: 'a@b.com', name: 'A', createdAt: 'x' });
     render(<LoginPage />);
-    await userEvent.type(screen.getByLabelText(/email/i), 'a@b.com');
-    await userEvent.type(screen.getByLabelText(/password/i), 'password123');
+    await userEvent.type(screen.getByLabelText(/^Email address$/i), 'a@b.com');
+    await userEvent.type(screen.getByLabelText(/^Password$/i), 'password123');
     await userEvent.click(screen.getByRole('button', { name: /sign in/i }));
     expect(loginMock).toHaveBeenCalledWith({ email: 'a@b.com', password: 'password123' });
     expect(push).toHaveBeenCalledWith('/dashboard');
@@ -23,8 +23,8 @@ describe('LoginPage', () => {
   it('shows inline error on failure', async () => {
     loginMock.mockRejectedValueOnce(Object.assign(new Error('nope'), { code: 'INVALID_CREDENTIALS' }));
     render(<LoginPage />);
-    await userEvent.type(screen.getByLabelText(/email/i), 'a@b.com');
-    await userEvent.type(screen.getByLabelText(/password/i), 'password123');
+    await userEvent.type(screen.getByLabelText(/^Email address$/i), 'a@b.com');
+    await userEvent.type(screen.getByLabelText(/^Password$/i), 'password123');
     await userEvent.click(screen.getByRole('button', { name: /sign in/i }));
     expect(await screen.findByText(/nope/i)).toBeInTheDocument();
   });

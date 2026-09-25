@@ -40,4 +40,18 @@ describe('api client', () => {
       expect(e.message).toBe('nope');
     }
   });
+
+  it('handles non-JSON error responses gracefully', async () => {
+    globalThis.fetch = vi.fn().mockImplementation(() => Promise.resolve(
+      new Response('Internal Server Error', { status: 500, headers: { 'content-type': 'text/plain' } })
+    )) as unknown as typeof fetch;
+    await expect(api.get('/x')).rejects.toBeInstanceOf(ApiError);
+    try { await api.get('/x'); } catch (err) {
+      const e = err as ApiError;
+      expect(e.status).toBe(500);
+      expect(e.code).toBe('UNKNOWN');
+      expect(e.message).toBe('Internal Server Error');
+    }
+  });
 });
+

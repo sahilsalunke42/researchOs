@@ -28,5 +28,26 @@ export const projectsController = {
       await projectsService.deleteProject(req.userId!, req.params.id!);
       res.json({ ok: true });
     } catch (err) { next(err); }
+  },
+
+  async runResearch(req: Request, res: Response, next: NextFunction) {
+    try {
+      const project = await projectsService.runResearch(req.userId!, req.params.id!);
+      res.json({ project });
+    } catch (err) { next(err); }
+  },
+
+  async getPapers(req: Request, res: Response, next: NextFunction) {
+    try {
+      const papers = await projectsService.getPapers(req.userId!, req.params.id!);
+      res.json({ papers });
+    } catch (err) { next(err); }
+  },
+
+  async getReport(req: Request, res: Response, next: NextFunction) {
+    try {
+      const report = await projectsService.getReport(req.userId!, req.params.id!);
+      res.json({ report });
+    } catch (err) { next(err); }
   }
 };
