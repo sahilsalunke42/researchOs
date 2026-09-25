@@ -11,7 +11,8 @@ const researchSchema = z.object({
     z.literal(2),
     z.literal(3),
     z.literal(5),
-    z.literal(10)
+    z.literal(10),
+    z.literal(20)
   ]),
   projectId: z.string().uuid().optional()
 });
