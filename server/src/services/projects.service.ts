@@ -1,7 +1,7 @@
 import type { Project, AgentRun } from '@prisma/client';
 import { prisma } from '../db/prisma.js';
 import { httpErrors } from '../errors/httpErrors.js';
-import type { ProjectDTO, AgentRunDTO } from '../types/api.types.js';
+import type { ProjectDTO, AgentRunDTO, ProjectPaperDTO, ProjectReportDTO } from '../types/api.types.js';
 
 type ProjectWithRuns = Project & { agentRuns: AgentRun[] };
 
@@ -64,6 +64,37 @@ export const projectsService = {
     });
     if (!project) throw httpErrors.notFound('Project not found', 'PROJECT_NOT_FOUND');
     return toDTO(project);
+  },
+
+  async listProjectPapers(userId: string, projectId: string): Promise<ProjectPaperDTO[]> {
+    await this.getProject(userId, projectId);
+    const papers = await prisma.paper.findMany({
+      where: { projectId },
+      orderBy: [{ year: 'desc' }, { title: 'asc' }]
+    });
+    return papers.map(paper => ({
+      id: paper.id,
+      externalId: paper.externalId,
+      source: paper.source,
+      title: paper.title,
+      authors: paper.authors,
+      year: paper.year,
+      pdfUrl: paper.pdfUrl,
+      citationCount: paper.citationCount,
+      abstractText: paper.abstractText
+    }));
+  },
+
+  async getProjectReport(userId: string, projectId: string): Promise<ProjectReportDTO | null> {
+    await this.getProject(userId, projectId);
+    const report = await prisma.report.findUnique({ where: { projectId } });
+    if (!report) return null;
+    return {
+      id: report.id,
+      projectId: report.projectId,
+      content: report.content,
+      createdAt: report.createdAt.toISOString()
+    };
   },
 
   async deleteProject(userId: string, projectId: string): Promise<void> {

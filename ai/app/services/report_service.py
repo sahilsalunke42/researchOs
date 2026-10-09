@@ -1,37 +1,61 @@
 from __future__ import annotations
 
-from pathlib import Path
-
-from app.rag.retrieval import assemble_context, extract_sources, retrieve_context, select_grounded_chunks
+from app.rag.retrieval import extract_sources, retrieve_context, select_grounded_chunks
+from app.services.analysis_service import analyze_research
 from app.services.llmService import ask
 
-PROMPT_PATH = Path(__file__).resolve().parents[1] / "prompts" / "report_prompt.txt"
+
+def _source_payload(source) -> dict[str, object | None]:
+    return {
+        "title": source.title,
+        "authors": list(source.authors),
+        "year": source.year,
+        "doi": source.doi,
+        "url": source.url,
+        "source": source.source,
+        "page": source.page,
+    }
 
 
-def _load_prompt() -> str:
-    return PROMPT_PATH.read_text(encoding="utf-8").strip()
+def generate_research_intelligence(
+    topic: str,
+    *,
+    paper_keys: list[str] | None = None,
+    retrieval_limit: int = 10,
+) -> dict[str, object]:
+    chunks = retrieve_context(
+        topic,
+        limit=retrieval_limit,
+        paper_keys=paper_keys,
+    )
+    grounded_chunks = select_grounded_chunks(chunks, min_score=0.25)
 
+    if not grounded_chunks:
+        return {
+            "report": "No source context was found for this research run.",
+            "paper_analysis": [],
+            "research_gaps": [],
+            "contradictions": [],
+            "supporting_evidence": [],
+            "contrasting_evidence": [],
+            "sources": [],
+        }
 
-def build_prompt(topic: str, context: str) -> str:
-    return _load_prompt().format(context=context, topic=topic.strip())
-
-
-def generate_report(topic: str, limit: int = 8) -> str:
-    chunks = retrieve_context(topic, limit=limit)
-    grounded_chunks = select_grounded_chunks(chunks)
-    context = assemble_context(grounded_chunks)
-    if not context:
-        return "No source context was found for this topic."
-    report = ask(build_prompt(topic, context)).strip()
+    analysis = analyze_research(topic, grounded_chunks)
     sources = extract_sources(grounded_chunks)
-    if not sources:
-        return report
+    analysis["sources"] = [_source_payload(source) for source in sources]
+    analysis["retrieved_chunks"] = len(grounded_chunks)
+    return analysis
 
-    references_lines = ["## References"]
-    for index, source in enumerate(sources, start=1):
-        authors = ", ".join(source.authors) if source.authors else "Unknown authors"
-        year = str(source.year) if source.year is not None else "n.d."
-        source_url = source.url or "N/A"
-        citation_key = source.doi or source_url
-        references_lines.append(f"{index}. **{source.title}** — {authors} ({year}) [{citation_key}]")
-    return f"{report}\n\n" + "\n".join(references_lines)
+
+def generate_report(
+    topic: str,
+    limit: int = 2,
+    paper_keys: list[str] | None = None,
+) -> str:
+    result = generate_research_intelligence(
+        topic,
+        paper_keys=paper_keys,
+        retrieval_limit=max(limit, 4),
+    )
+    return str(result.get("report") or "No source context was found for this research run.")

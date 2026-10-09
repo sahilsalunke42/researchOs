@@ -8,6 +8,7 @@ import { errorMiddleware } from './middleware/error.middleware.js';
 import { defaultLimiter } from './middleware/rateLimit.middleware.js';
 import { authRoutes } from './routes/auth.routes.js';
 import { projectsRoutes } from './routes/projects.routes.js';
+import { researchRoutes } from './routes/research.routes.js';
 
 export function createApp(): Express {
   const app = express();
@@ -22,6 +23,7 @@ export function createApp(): Express {
   app.use('/api', defaultLimiter);
   app.use('/api/auth', authRoutes);
   app.use('/api/projects', projectsRoutes);
+  app.use('/api/research', researchRoutes);
 
   app.use(errorMiddleware);
   return app;
