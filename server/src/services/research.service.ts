@@ -1,7 +1,75 @@
 import { prisma } from '../db/prisma.js';
+import { PaperSource } from '@prisma/client';
 import { httpErrors } from '../errors/httpErrors.js';
 import { aiService } from './ai.services.js';
 import type { ResearchResponseDTO } from '../types/api.types.js';
+
+function asString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function paperSource(value: unknown): PaperSource {
+  const normalized = String(value ?? '').toLowerCase();
+  if (normalized.includes('arxiv')) return 'ARXIV';
+  if (normalized.includes('openalex')) return 'OPENALEX';
+  return 'SEMANTIC_SCHOLAR';
+}
+
+function normalizedTitle(value: unknown): string {
+  return String(value ?? '').trim().toLocaleLowerCase();
+}
+
+async function persistResearchPapers(projectId: string, result: ResearchResponseDTO): Promise<void> {
+  const analyses = new Map(result.paper_analysis.map(item => [normalizedTitle(item.paper), item] as const));
+  const unique = new Map<string, {
+    externalId: string; source: PaperSource; title: string; authors: string[];
+    year: number | null; pdfUrl: string | null; abstractText: string | null;
+    summaryProblem: string | null; summaryMethod: string | null; summaryDataset: string | null;
+    summaryResults: string | null; summaryLimits: string | null;
+  }>();
+
+  for (const source of result.sources) {
+    const title = asString(source.title);
+    if (!title) continue;
+    const doi = asString(source.doi);
+    const url = asString(source.url);
+    const yearValue = source.year;
+    const year = typeof yearValue === 'number' && Number.isInteger(yearValue) ? yearValue : null;
+    const externalId = doi ? `doi:${doi}` : url ? url : `title:${normalizedTitle(title)}:${year ?? 'unknown'}`;
+    const analysis = analyses.get(normalizedTitle(title));
+    const authors = Array.isArray(source.authors)
+      ? source.authors.filter((author): author is string => typeof author === 'string' && Boolean(author.trim())).map(author => author.trim())
+      : [];
+    unique.set(externalId, {
+      externalId,
+      source: paperSource(source.source),
+      title,
+      authors,
+      year,
+      pdfUrl: url && /\.pdf(?:[?#].*)?$/i.test(url) ? url : null,
+      abstractText: asString(source.abstract),
+      summaryProblem: asString(analysis?.objective),
+      summaryMethod: asString(analysis?.method),
+      summaryDataset: asString(analysis?.dataset),
+      summaryResults: asString(analysis?.findings),
+      summaryLimits: asString(analysis?.limitations)
+    });
+  }
+
+  await prisma.$transaction(async tx => {
+    const existing = await tx.paper.findMany({ where: { projectId } });
+    const byExternalId = new Map(existing.map(paper => [paper.externalId, paper] as const));
+    for (const paper of unique.values()) {
+      const current = byExternalId.get(paper.externalId);
+      if (current) {
+        await tx.paper.update({ where: { id: current.id }, data: paper });
+      } else {
+        await tx.paper.create({ data: { ...paper, projectId } });
+      }
+    }
+  });
+}
+
 
 export const researchService = {
   async runForUser(
@@ -38,6 +106,7 @@ export const researchService = {
       const result = await aiService.runResearch(input.topic.trim(), input.paperLimit);
 
       if (projectId) {
+        await persistResearchPapers(projectId, result);
         const completedAt = new Date();
         await prisma.$transaction([
           prisma.report.upsert({

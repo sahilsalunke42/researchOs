@@ -78,3 +78,22 @@ export interface ResearchResponseDTO {
   contrasting_evidence: ResearchEvidenceDTO[];
   sources: Array<Record<string, unknown>>;
 }
+
+export interface ProjectPaperDTO {
+  id: string;
+  externalId: string;
+  source: 'SEMANTIC_SCHOLAR' | 'ARXIV' | 'OPENALEX';
+  title: string;
+  authors: string[];
+  year: number | null;
+  pdfUrl: string | null;
+  citationCount: number;
+  abstractText: string | null;
+}
+
+export interface ProjectReportDTO {
+  id: string;
+  projectId: string;
+  content: string;
+  createdAt: string;
+}

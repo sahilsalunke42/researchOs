@@ -23,6 +23,20 @@ export const projectsController = {
     } catch (err) { next(err); }
   },
 
+  async papers(req: Request, res: Response, next: NextFunction) {
+    try {
+      const papers = await projectsService.listProjectPapers(req.userId!, req.params.id!);
+      res.json({ papers });
+    } catch (err) { next(err); }
+  },
+
+  async report(req: Request, res: Response, next: NextFunction) {
+    try {
+      const report = await projectsService.getProjectReport(req.userId!, req.params.id!);
+      res.json({ report });
+    } catch (err) { next(err); }
+  },
+
   async remove(req: Request, res: Response, next: NextFunction) {
     try {
       await projectsService.deleteProject(req.userId!, req.params.id!);

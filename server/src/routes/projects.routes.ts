@@ -18,4 +18,6 @@ projectsRoutes.use(requireAuth);
 projectsRoutes.get('/', projectsController.list);
 projectsRoutes.post('/', validate({ body: createSchema }), projectsController.create);
 projectsRoutes.get('/:id', validate({ params: idParam }), projectsController.get);
+projectsRoutes.get('/:id/papers', validate({ params: idParam }), projectsController.papers);
+projectsRoutes.get('/:id/report', validate({ params: idParam }), projectsController.report);
 projectsRoutes.delete('/:id', validate({ params: idParam }), projectsController.remove);
