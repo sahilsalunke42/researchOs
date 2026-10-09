@@ -1,0 +1,1 @@
+ALTER TABLE "Project" ALTER COLUMN "paperLimit" SET DEFAULT 10;

@@ -7,7 +7,7 @@ import { validate } from '../middleware/validate.middleware.js';
 const createSchema = z.object({
   name: z.string().min(1).max(200),
   topic: z.string().min(1).max(2000),
-  paperLimit: z.union([z.literal(5), z.literal(10), z.literal(20)])
+  paperLimit: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(5), z.literal(10)])
 });
 
 const idParam = z.object({ id: z.string().uuid() });
