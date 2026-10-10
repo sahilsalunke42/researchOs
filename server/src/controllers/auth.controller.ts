@@ -40,5 +40,12 @@ export const authController = {
       const user = await authService.getMe(req.userId!);
       res.json({ user });
     } catch (err) { next(err); }
+  },
+
+  async updateMe(req: Request, res: Response, next: NextFunction) {
+    try {
+      const user = await authService.updateMe(req.userId!, req.body);
+      res.json({ user });
+    } catch (err) { next(err); }
   }
 };

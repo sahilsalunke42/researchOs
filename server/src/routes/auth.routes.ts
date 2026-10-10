@@ -16,6 +16,13 @@ const loginSchema = z.object({
   password: z.string().min(1).max(200)
 });
 
+const updateMeSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  email: z.string().email().optional(),
+  currentPassword: z.string().optional(),
+  newPassword: z.string().min(8).max(200).optional()
+});
+
 export const authRoutes = Router();
 
 authRoutes.use(authLimiter);
@@ -23,3 +30,4 @@ authRoutes.post('/register', validate({ body: registerSchema }), authController.
 authRoutes.post('/login', validate({ body: loginSchema }), authController.login);
 authRoutes.post('/logout', authController.logout);
 authRoutes.get('/me', requireAuth, authController.me);
+authRoutes.patch('/me', requireAuth, validate({ body: updateMeSchema }), authController.updateMe);

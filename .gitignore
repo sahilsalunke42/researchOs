@@ -8,3 +8,6 @@ build/
 coverage/
 *.log
 .DS_Store
+.vscode/
+*.db
+*.tsbuildinfo

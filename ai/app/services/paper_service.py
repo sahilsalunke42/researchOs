@@ -22,6 +22,11 @@ SEMANTIC_SCHOLAR_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
 SEMANTIC_SCHOLAR_FIELDS_PRIMARY = "paperId,title,authors,year,abstract,url,doi,externalIds"
 SEMANTIC_SCHOLAR_FIELDS_FALLBACK = "paperId,title,authors,year,abstract,url,doi"
 logger = logging.getLogger(__name__)
+PDF_PROBE_HEADERS = {
+    "Accept": "application/pdf,application/octet-stream;q=0.9,*/*;q=0.8",
+    "Range": "bytes=0-4",
+    "User-Agent": "ResearchOS/1.0 (evidence retrieval)",
+}
 
 
 @dataclass(frozen=True)
@@ -32,6 +37,7 @@ class Paper:
     doi: str | None
     source: str
     url: str | None = None
+    pdf_url: str | None = None
     abstract: str | None = None
     external_id: str | None = None
     relevance_score: float | None = None
@@ -59,6 +65,7 @@ def normalize_paper(data: dict[str, Any], source: str) -> Paper:
     doi = data.get("doi")
     year = data.get("year")
     url = data.get("url") or data.get("entry_id")
+    pdf_url = data.get("pdf_url")
     abstract = data.get("abstract") or data.get("summary")
     external_id = data.get("external_id")
     return Paper(
@@ -68,6 +75,7 @@ def normalize_paper(data: dict[str, Any], source: str) -> Paper:
         doi=str(doi).strip() if doi else None,
         source=source,
         url=str(url).strip() if url else None,
+        pdf_url=str(pdf_url).strip() if pdf_url else None,
         abstract=str(abstract).strip() if abstract else None,
         external_id=str(external_id).strip() if external_id else None,
         relevance_score=None,
@@ -188,6 +196,7 @@ def fetch_arxiv(query: str, limit: int = 5) -> list[Paper]:
                     "year": result.published.year if result.published else None,
                     "doi": result.doi,
                     "url": result.entry_id,
+                    "pdf_url": getattr(result, "pdf_url", None),
                     "abstract": result.summary,
                     "external_id": result.entry_id,
                 },
@@ -197,37 +206,261 @@ def fetch_arxiv(query: str, limit: int = 5) -> list[Paper]:
     return papers
 
 
-def fetch_papers(query: str, limit: int = 5) -> list[Paper]:
-    errors: list[Exception] = []
-    semantic_papers: list[Paper] = []
+def _has_downloadable_pdf(pdf_url: str, timeout: int = 20) -> bool:
+    """Check that a provider URL returns PDF content before selecting it."""
+    try:
+        with requests.get(
+            pdf_url,
+            headers=PDF_PROBE_HEADERS,
+            stream=True,
+            timeout=timeout,
+        ) as response:
+            content_type = response.headers.get("content-type", "").casefold()
+            if response.status_code not in {200, 206}:
+                logger.info(
+                    "Skipping PDF candidate status=%d url=%s",
+                    response.status_code,
+                    pdf_url,
+                )
+                return False
+            if content_type and "pdf" not in content_type and "octet-stream" not in content_type:
+                logger.info(
+                    "Skipping PDF candidate content_type=%r url=%s",
+                    content_type,
+                    pdf_url,
+                )
+                return False
+            if next(response.iter_content(chunk_size=5), b"") != b"%PDF-":
+                logger.info("Skipping PDF candidate with invalid magic bytes url=%s", pdf_url)
+                return False
+    except requests.RequestException as exc:
+        logger.info("Skipping unreachable PDF candidate url=%s error=%s", pdf_url, exc)
+        return False
+
+    return True
+
+
+def fetch_openalex(query: str, limit: int = 5) -> list[Paper]:
+    url = "https://api.openalex.org/works"
+
+    # Request extra results because some OpenAlex papers
+    # do not have a downloadable PDF.
+    search_limit = min(max(limit * 5, 10), 50)
+
+    logger.info("OpenAlex request started query=%r limit=%d", query, limit)
+    response = requests.get(
+        url,
+        params={
+            "search": query,
+            "per-page": search_limit,
+            "select": (
+                "id,title,authorships,publication_year,doi,"
+                "best_oa_location,primary_location,abstract_inverted_index"
+            ),
+        },
+        timeout=20,
+    )
+
+    logger.info("OpenAlex HTTP status=%d", response.status_code)
+    response.raise_for_status()
+
+    payload = response.json()
+    raw_results = payload.get("results", [])
+    logger.info("OpenAlex returned raw_results=%d", len(raw_results))
+
+    papers: list[Paper] = []
+    normalized_count = 0
+    advertised_pdf_count = 0
+    pdf_ready_count = 0
+
+    for item in raw_results:
+        primary_location = item.get("primary_location") or {}
+
+        best_oa_location = (
+            item.get("best_oa_location") or {}
+        )
+
+        # Prefer an actual PDF URL.
+        pdf_url = (
+            best_oa_location.get("pdf_url")
+            or primary_location.get("pdf_url")
+        )
+
+        # Skip papers that do not expose a downloadable PDF.
+        if not pdf_url:
+            continue
+
+        advertised_pdf_count += 1
+        if not _has_downloadable_pdf(str(pdf_url)):
+            continue
+
+        pdf_ready_count += 1
+
+        authors = [
+            (author.get("author") or {}).get(
+                "display_name"
+            ) or ""
+            for author in (item.get("authorships") or [])
+        ]
+
+        authors = [
+            name for name in authors
+            if name
+        ]
+
+        abstract = None
+
+        inverted_index = (
+            item.get("abstract_inverted_index")
+            or {}
+        )
+
+        if inverted_index:
+            words: list[tuple[int, str]] = []
+
+            for word, positions in inverted_index.items():
+                for position in positions:
+                    words.append(
+                        (position, word)
+                    )
+
+            words.sort(
+                key=lambda x: x[0]
+            )
+
+            abstract = " ".join(
+                word for _, word in words
+            )
+
+        paper = normalize_paper(
+                {
+                    "title": item.get("title") or "",
+                    "authors": authors,
+                    "year": item.get("publication_year"),
+                    "doi": item.get("doi"),
+                    "url": (
+                        best_oa_location.get("landing_page_url")
+                        or primary_location.get("landing_page_url")
+                        or item.get("id")
+                    ),
+                    "pdf_url": pdf_url,
+                    "abstract": abstract,
+                    "external_id": item.get("id"),
+                },
+                source="openalex",
+            )
+        normalized_count += 1
+        papers.append(paper)
+
+        if len(papers) >= limit:
+            break
+
+    logger.info(
+        "OpenAlex normalized=%d advertised_pdf=%d pdf_ready=%d returning=%d",
+        normalized_count,
+        advertised_pdf_count,
+        pdf_ready_count,
+        len(papers),
+    )
+
+    return papers
+
+
+def fetch_papers(
+    query: str,
+    limit: int = 5,
+) -> list[Paper]:
+
+    openalex_papers: list[Paper] = []
     arxiv_papers: list[Paper] = []
 
+    # OpenAlex is the primary source.
     try:
-        semantic_papers = fetch_semantic_scholar(query, limit=limit)
-    except Exception as exc:
-        errors.append(exc)
-        logger.warning("Semantic Scholar search failed, continuing with arXiv only: %s", exc)
+        openalex_papers = fetch_openalex(
+            query,
+            limit=limit,
+        )
 
-    try:
-        arxiv_papers = fetch_arxiv(query, limit=limit)
-    except Exception as exc:
-        errors.append(exc)
-        logger.warning("arXiv search failed, continuing with Semantic Scholar only: %s", exc)
+        logger.info(
+            "OpenAlex returned %d PDF-ready papers",
+            len(openalex_papers),
+        )
 
-    papers = dedupe_papers(semantic_papers + arxiv_papers)
-    if not papers and errors:
-        raise RuntimeError("Both Semantic Scholar and arXiv searches failed") from errors[0]
+    except Exception as exc:
+        logger.warning(
+            "OpenAlex search failed: %s",
+            exc,
+        )
+
+    # If OpenAlex cannot provide enough PDF-ready papers,
+    # use arXiv for the remaining papers.
+    if len(openalex_papers) < limit:
+
+        try:
+            remaining = (
+                limit - len(openalex_papers)
+            )
+
+            arxiv_papers = fetch_arxiv(
+                query,
+                limit=remaining,
+            )
+
+            logger.info(
+                "arXiv returned %d fallback papers",
+                len(arxiv_papers),
+            )
+
+        except Exception as exc:
+            logger.warning(
+                "arXiv fallback failed: %s",
+                exc,
+            )
+
+    papers = dedupe_papers(
+        openalex_papers + arxiv_papers
+    )
 
     if not papers:
+        logger.warning(
+            "No papers were retrieved for query=%r",
+            query,
+        )
         return []
 
-    query_embedding = np.array(generate_embeddings(query), dtype=float)
-    texts = [f"{paper.title}\n\n{paper.abstract or ''}".strip() for paper in papers]
-    paper_embeddings = generate_embeddings_batch(texts)
+    logger.info("fetch_papers returning=%d", min(len(papers), limit))
+
+    query_embedding = np.array(
+        generate_embeddings(query),
+        dtype=float,
+    )
+
+    texts = [
+        f"{paper.title}\n\n"
+        f"{paper.abstract or ''}".strip()
+        for paper in papers
+    ]
+
+    paper_embeddings = (
+        generate_embeddings_batch(texts)
+    )
 
     ranked: list[Paper] = []
-    for paper, embedding in zip(papers, paper_embeddings, strict=True):
-        score = _cosine_similarity(query_embedding, np.array(embedding, dtype=float))
+
+    for paper, embedding in zip(
+        papers,
+        paper_embeddings,
+        strict=True,
+    ):
+
+        score = _cosine_similarity(
+            query_embedding,
+            np.array(
+                embedding,
+                dtype=float,
+            ),
+        )
+
         ranked.append(
             Paper(
                 title=paper.title,
@@ -236,11 +469,17 @@ def fetch_papers(query: str, limit: int = 5) -> list[Paper]:
                 doi=paper.doi,
                 source=paper.source,
                 url=paper.url,
+                pdf_url=paper.pdf_url,
                 abstract=paper.abstract,
                 external_id=paper.external_id,
                 relevance_score=score,
             )
         )
 
-    ranked.sort(key=lambda paper: paper.relevance_score or -1.0, reverse=True)
-    return ranked
+    ranked.sort(
+        key=lambda paper:
+            paper.relevance_score or -1.0,
+        reverse=True,
+    )
+
+    return ranked[:limit]

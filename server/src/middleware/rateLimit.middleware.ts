@@ -10,11 +10,11 @@ const shared = {
 export const authLimiter = rateLimit({
   ...shared,
   windowMs: CONSTANTS.RATE_LIMIT_AUTH.windowMs,
-  max: CONSTANTS.RATE_LIMIT_AUTH.max
+  max: process.env.NODE_ENV === 'test' ? 1000 : CONSTANTS.RATE_LIMIT_AUTH.max
 });
 
 export const defaultLimiter = rateLimit({
   ...shared,
   windowMs: CONSTANTS.RATE_LIMIT_DEFAULT.windowMs,
-  max: CONSTANTS.RATE_LIMIT_DEFAULT.max
+  max: process.env.NODE_ENV === 'test' ? 1000 : CONSTANTS.RATE_LIMIT_DEFAULT.max
 });

@@ -21,7 +21,7 @@ model Project {
   userId     String
   name       String
   topic      String
-  paperLimit Int           @default(20)
+  paperLimit Int           @default(10)
   status     ProjectStatus @default(QUEUED)
   createdAt  DateTime      @default(now())
   updatedAt  DateTime      @updatedAt
@@ -70,6 +70,7 @@ model Paper {
 enum PaperSource {
   SEMANTIC_SCHOLAR
   ARXIV
+  OPENALEX
 }
 
 model Report {

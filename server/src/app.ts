@@ -8,6 +8,7 @@ import { errorMiddleware } from './middleware/error.middleware.js';
 import { defaultLimiter } from './middleware/rateLimit.middleware.js';
 import { authRoutes } from './routes/auth.routes.js';
 import { projectsRoutes } from './routes/projects.routes.js';
+import { researchRoutes } from './routes/research.routes.js';
 
 export function createApp(): Express {
   const app = express();
@@ -17,11 +18,26 @@ export function createApp(): Express {
   app.use(cookieParser());
   app.use(requestIdMiddleware);
 
+  app.get('/', (_req, res) => {
+    res.json({
+      name: 'ResearchOS Backend API',
+      status: 'online',
+      version: '0.1.0',
+      health: '/api/health',
+      frontend: env.CORS_ORIGIN
+    });
+  });
+
   app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 
   app.use('/api', defaultLimiter);
   app.use('/api/auth', authRoutes);
   app.use('/api/projects', projectsRoutes);
+  app.use('/api/research', researchRoutes);
+
+  app.use((_req, res) => {
+    res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Endpoint not found' } });
+  });
 
   app.use(errorMiddleware);
   return app;

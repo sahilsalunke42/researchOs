@@ -33,3 +33,67 @@ export interface ProjectDTO {
   updatedAt: string;
   agentRuns: AgentRunDTO[];
 }
+
+export interface ResearchEvidenceDTO {
+  claim: string;
+  evidence: string;
+  paper: string;
+  page: number | null;
+  source_url: string | null;
+  evidence_type: string;
+}
+
+export interface ResearchResponseDTO {
+  topic: string;
+  papers_processed: number;
+  total_chunks: number;
+  report: string;
+  paper_analysis: Array<{
+    paper: string;
+    objective: string;
+    method: string;
+    dataset: string;
+    findings: string;
+    limitations: string;
+  }>;
+  research_gaps: Array<{
+    gap: string;
+    description: string;
+    evidence: string[];
+    source_papers: string[];
+    confidence: number | null;
+  }>;
+  contradictions: Array<{
+    claim_a: string;
+    claim_b: string;
+    paper_a: string;
+    paper_b: string;
+    evidence_a: string;
+    evidence_b: string;
+    possible_reason: string | null;
+    confidence: number | null;
+    status: string;
+  }>;
+  supporting_evidence: ResearchEvidenceDTO[];
+  contrasting_evidence: ResearchEvidenceDTO[];
+  sources: Array<Record<string, unknown>>;
+}
+
+export interface ProjectPaperDTO {
+  id: string;
+  externalId: string;
+  source: 'SEMANTIC_SCHOLAR' | 'ARXIV' | 'OPENALEX';
+  title: string;
+  authors: string[];
+  year: number | null;
+  pdfUrl: string | null;
+  citationCount: number;
+  abstractText: string | null;
+}
+
+export interface ProjectReportDTO {
+  id: string;
+  projectId: string;
+  content: string;
+  createdAt: string;
+}

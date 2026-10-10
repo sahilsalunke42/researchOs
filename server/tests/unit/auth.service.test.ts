@@ -42,4 +42,11 @@ describe('auth.service', () => {
     const me = await authService.getMe(user.id);
     expect(me.id).toBe(user.id);
   });
+
+  it('updateMe updates name and email', async () => {
+    const { user } = await authService.register({ email: 'a@b.com', password: 'password123', name: 'A' });
+    const updated = await authService.updateMe(user.id, { name: 'Updated Name', email: 'updated@b.com' });
+    expect(updated.name).toBe('Updated Name');
+    expect(updated.email).toBe('updated@b.com');
+  });
 });

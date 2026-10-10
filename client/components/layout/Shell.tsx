@@ -7,11 +7,12 @@ import { useUIStore } from '@/store/ui.store';
 
 interface ShellProps {
   userName?: string;
+  userEmail?: string;
   onLogout(): void;
   children: React.ReactNode;
 }
 
-export function Shell({ userName, onLogout, children }: ShellProps) {
+export function Shell({ userName, userEmail, onLogout, children }: ShellProps) {
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
 
   useEffect(() => {
@@ -26,12 +27,12 @@ export function Shell({ userName, onLogout, children }: ShellProps) {
   }, [toggleSidebar]);
 
   return (
-    <div className="min-h-screen flex flex-col bg-bg-base">
-      <Header userName={userName} onLogout={onLogout} />
-      <div className="flex flex-1 min-h-0">
+    <div className="h-screen overflow-hidden flex flex-col bg-bg-base">
+      <Header userName={userName} userEmail={userEmail} onLogout={onLogout} />
+      <div className="flex flex-1 min-h-0 overflow-hidden">
         <Sidebar />
-        <main className="flex-1 overflow-auto">
-          <div className="max-w-[1100px] mx-auto p-6">{children}</div>
+        <main className="flex-1 min-h-0 overflow-y-auto bg-slate-50/60">
+          <div className="max-w-[1440px] w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">{children}</div>
         </main>
       </div>
     </div>

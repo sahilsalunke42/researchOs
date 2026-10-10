@@ -74,4 +74,23 @@ describe('projects routes', () => {
     const list = await request(app).get('/api/projects').set('Cookie', cookie);
     expect(list.body.projects).toHaveLength(0);
   });
+
+  it('runs research and retrieves papers and report', async () => {
+    const { cookie } = await auth();
+    const c = await request(app).post('/api/projects').set('Cookie', cookie).send({ name: 'P', topic: 'Quantum AI', paperLimit: 5 });
+    const projId = c.body.project.id;
+
+    const runRes = await request(app).post(`/api/projects/${projId}/research`).set('Cookie', cookie).send({});
+    expect(runRes.status).toBe(200);
+    expect(runRes.body.project.status).toBe('COMPLETE');
+
+    const papersRes = await request(app).get(`/api/projects/${projId}/papers`).set('Cookie', cookie);
+    expect(papersRes.status).toBe(200);
+    expect(papersRes.body.papers.length).toBeGreaterThan(0);
+
+    const reportRes = await request(app).get(`/api/projects/${projId}/report`).set('Cookie', cookie);
+    expect(reportRes.status).toBe(200);
+    expect(reportRes.body.report.content).toContain('Quantum AI');
+  });
 });
+

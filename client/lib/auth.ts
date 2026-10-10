@@ -25,6 +25,16 @@ export async function logout(): Promise<void> {
   await api.post<{ ok: true }>('/api/auth/logout');
 }
 
+export async function updateProfile(input: {
+  name?: string;
+  email?: string;
+  currentPassword?: string;
+  newPassword?: string;
+}): Promise<UserDTO> {
+  const res = await api.patch<{ user: UserDTO }>('/api/auth/me', input);
+  return res.user;
+}
+
 export async function serverGetSession(cookieHeader: string): Promise<UserDTO | null> {
   const base = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:4000';
   const res = await fetch(`${base}/api/auth/me`, {

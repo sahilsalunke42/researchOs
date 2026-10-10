@@ -3,34 +3,113 @@
 @tailwind utilities;
 
 :root {
-  /* Light mode */
-  --bg-base:      0 0% 98%;    /* #FAFAFA */
-  --bg-surface:   0 0% 100%;   /* #FFFFFF */
-  --bg-subtle:    240 5% 96%;  /* #F4F4F5 */
-  --border:       240 6% 90%;  /* #E4E4E7 */
-  --text-primary: 240 10% 4%;  /* #09090B */
-  --text-muted:   240 4% 46%;  /* #71717A */
-  --accent:       217 91% 60%; /* #2563EB */
-  --accent-green: 142 76% 36%; /* #16A34A */
-  --accent-amber: 32 95% 44%;  /* #D97706 */
-  --accent-red:   0 84% 51%;   /* #DC2626 */
+  /* ResearchOS Light Theme Palette */
+  --bg-base: 210 40% 98%;
+  /* #F8FAFC */
+  --bg-surface: 0 0% 100%;
+  /* #FFFFFF */
+  --bg-subtle: 214 32% 96%;
+  /* #F1F5F9 */
+  --border: 214 32% 91%;
+  /* #E2E8F0 */
+  --text-primary: 222 47% 11%;
+  /* #111827 */
+  --text-muted: 215 16% 47%;
+  /* #64748B */
+  --accent: 238 84% 59%;
+  /* #4F46E5 Indigo */
+  --accent-hover: 239 84% 50%;
+  /* #4338CA */
+  --accent-light: 226 100% 97%;
+  /* #EEF2FF */
+  --accent-soft: 226 100% 94%;
+  /* #E0E7FF */
+  --accent-green: 142 76% 36%;
+  /* #16A34A */
+  --accent-amber: 32 95% 44%;
+  /* #D97706 */
+  --accent-red: 0 84% 60%;
+  /* #DC2626 */
 }
 
 .dark {
-  --bg-base:      0 0% 4%;
-  --bg-surface:   0 0% 7%;
-  --bg-subtle:    0 0% 10%;
-  --border:       240 4% 16%;
-  --text-primary: 0 0% 98%;
-  --text-muted:   240 5% 65%;
-  --accent:       217 91% 60%;
+  --bg-base: 224 71% 4%;
+  --bg-surface: 224 71% 7%;
+  --bg-subtle: 224 71% 10%;
+  --border: 215 28% 17%;
+  --text-primary: 210 40% 98%;
+  --text-muted: 215 20% 65%;
+  --accent: 238 84% 59%;
+  --accent-hover: 239 84% 50%;
+  --accent-light: 238 84% 15%;
+  --accent-soft: 238 84% 20%;
   --accent-green: 142 76% 36%;
   --accent-amber: 32 95% 44%;
-  --accent-red:   0 84% 51%;
+  --accent-red: 0 84% 60%;
 }
 
-html, body {
+html,
+body {
   height: 100%;
   background-color: hsl(var(--bg-base));
   color: hsl(var(--text-primary));
+  font-family: var(--font-inter), system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+@layer utilities {
+  .shadow-soft {
+    box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.05), 0 2px 6px -1px rgba(15, 23, 42, 0.02);
+  }
+
+  .shadow-card {
+    box-shadow: 0 10px 30px -4px rgba(79, 70, 229, 0.04), 0 4px 12px -2px rgba(15, 23, 42, 0.03);
+  }
+
+  /* Landing Page Entrance Animations */
+  @keyframes fadeInUp {
+    from {
+      opacity: 0;
+      transform: translateY(24px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+    }
+
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes scaleIn {
+    from {
+      opacity: 0;
+      transform: scale(0.96) translateY(12px);
+    }
+
+    to {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
+  }
+
+  .animate-fade-in-up {
+    animation: fadeInUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  .animate-fade-in {
+    animation: fadeIn 0.6s ease-out forwards;
+  }
+
+  .animate-scale-in {
+    animation: scaleIn 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
 }

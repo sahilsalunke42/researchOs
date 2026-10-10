@@ -10,7 +10,7 @@ from app.schemas.papers import PaperItem, PaperSearchResponse
 from app.schemas.research import ResearchResponse
 from app.services.ingestion_service import IngestionResult, ingest_papers, paper_key
 from app.services.paper_service import Paper, fetch_papers
-from app.services.report_service import generate_report
+from app.services.report_service import generate_research_intelligence
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +23,7 @@ def _paper_to_item(paper: Paper) -> PaperItem:
         doi=paper.doi,
         source=paper.source,
         url=paper.url,
+        pdf_url=paper.pdf_url,
         abstract=paper.abstract,
         external_id=paper.external_id,
         relevance_score=paper.relevance_score,
@@ -45,20 +46,17 @@ def _to_ingest_response(query: str, results: list[IngestionResult]) -> IngestRes
         )
         for result in results
     ]
-    total_chunks = sum(item.chunk_count for item in items)
     return IngestResponse(
         query=query,
         papers_processed=len(items),
-        total_chunks=total_chunks,
+        total_chunks=sum(item.chunk_count for item in items),
         results=items,
     )
 
 
 def ingest_query(query: str, limit: int = 3) -> IngestResponse:
-    logger.info("Ingesting papers for query=%r limit=%d", query, limit)
     papers = fetch_papers(query, limit=limit)
-    results = ingest_papers(papers)
-    return _to_ingest_response(query, results)
+    return _to_ingest_response(query, ingest_papers(papers))
 
 
 def _to_paper_model(selected: SelectedPaper) -> Paper:
@@ -69,25 +67,15 @@ def _to_paper_model(selected: SelectedPaper) -> Paper:
         doi=selected.doi,
         source=selected.source,
         url=selected.url,
+        pdf_url=selected.pdf_url,
         abstract=selected.abstract,
         external_id=selected.external_id,
     )
 
 
 def ingest_selected_papers(papers: list[SelectedPaper]) -> IngestResponse:
-    logger.info("Ingesting %d selected papers", len(papers))
     paper_models = [_to_paper_model(paper) for paper in papers]
-    selected_pdf_url_map = {
-        paper_key(paper): selected.pdf_url
-        for selected, paper in zip(papers, paper_models, strict=True)
-        if selected.pdf_url
-    }
-
-    def _resolver(paper: Paper) -> str | None:
-        return selected_pdf_url_map.get(paper_key(paper))
-
-    results = ingest_papers(paper_models, pdf_url_resolver=_resolver)
-    return _to_ingest_response("selected-papers", results)
+    return _to_ingest_response("selected-papers", ingest_papers(paper_models))
 
 
 class ResearchGraphState(TypedDict, total=False):
@@ -95,38 +83,51 @@ class ResearchGraphState(TypedDict, total=False):
     paper_limit: int
     papers: list[Paper]
     ingestion: IngestResponse
-    report: str
+    intelligence: dict[str, object]
 
 
 def _discover_papers_node(state: ResearchGraphState) -> ResearchGraphState:
     topic = str(state["topic"]).strip()
     limit = int(state.get("paper_limit", 3))
     logger.info("LangGraph node=discover topic=%r limit=%d", topic, limit)
-    return {"papers": fetch_papers(topic, limit=limit)}
+    papers = fetch_papers(topic, limit=limit)
+    logger.info("Discovered %d papers", len(papers))
+    return {"papers": papers}
 
 
 def _ingest_papers_node(state: ResearchGraphState) -> ResearchGraphState:
     topic = str(state["topic"]).strip()
     papers = state.get("papers") or []
     logger.info("LangGraph node=ingest topic=%r papers=%d", topic, len(papers))
-    return {"ingestion": _to_ingest_response(topic, ingest_papers(papers))}
+    ingestion = _to_ingest_response(topic, ingest_papers(papers))
+    logger.info("Ingestion completed papers=%d chunks=%d", ingestion.papers_processed, ingestion.total_chunks)
+    return {"ingestion": ingestion}
 
 
-def _generate_report_node(state: ResearchGraphState) -> ResearchGraphState:
+def _generate_intelligence_node(state: ResearchGraphState) -> ResearchGraphState:
     topic = str(state["topic"]).strip()
-    logger.info("LangGraph node=report topic=%r", topic)
-    return {"report": generate_report(topic)}
+    papers = state.get("papers") or []
+    ingestion = state.get("ingestion")
+    if not papers or not ingestion or ingestion.papers_processed == 0:
+        return {"intelligence": {"report": "No research papers with downloadable evidence could be ingested."}}
+
+    result = generate_research_intelligence(
+        topic,
+        paper_keys=[paper_key(paper) for paper in papers],
+        retrieval_limit=max(8, min(15, len(papers) * 5)),
+    )
+    return {"intelligence": result}
 
 
 def _build_research_graph():
     graph = StateGraph(ResearchGraphState)
     graph.add_node("discover", _discover_papers_node)
     graph.add_node("ingest", _ingest_papers_node)
-    graph.add_node("report", _generate_report_node)
+    graph.add_node("analyze", _generate_intelligence_node)
     graph.add_edge(START, "discover")
     graph.add_edge("discover", "ingest")
-    graph.add_edge("ingest", "report")
-    graph.add_edge("report", END)
+    graph.add_edge("ingest", "analyze")
+    graph.add_edge("analyze", END)
     return graph.compile()
 
 
@@ -134,17 +135,20 @@ RESEARCH_GRAPH = _build_research_graph()
 
 
 def run_research(topic: str, paper_limit: int = 3) -> ResearchResponse:
-    logger.info("Running research workflow topic=%r paper_limit=%d", topic, paper_limit)
-    graph_result = RESEARCH_GRAPH.invoke(
-        {"topic": topic.strip(), "paper_limit": paper_limit},
-    )
-    ingestion = graph_result.get("ingestion")
-    if ingestion is None:
-        ingestion = _to_ingest_response(topic.strip(), [])
-    report = str(graph_result.get("report") or "No source context was found for this topic.")
+    topic = topic.strip()
+    graph_result = RESEARCH_GRAPH.invoke({"topic": topic, "paper_limit": paper_limit})
+    ingestion = graph_result.get("ingestion") or _to_ingest_response(topic, [])
+    intelligence = graph_result.get("intelligence") or {}
+
     return ResearchResponse(
         topic=topic,
         papers_processed=ingestion.papers_processed,
         total_chunks=ingestion.total_chunks,
-        report=report,
+        report=str(intelligence.get("report") or "No source context was found for this topic."),
+        paper_analysis=intelligence.get("paper_analysis", []),
+        research_gaps=intelligence.get("research_gaps", []),
+        contradictions=intelligence.get("contradictions", []),
+        supporting_evidence=intelligence.get("supporting_evidence", []),
+        contrasting_evidence=intelligence.get("contrasting_evidence", []),
+        sources=intelligence.get("sources", []),
     )

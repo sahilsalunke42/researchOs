@@ -13,9 +13,9 @@ describe('RegisterPage', () => {
   it('submits and navigates on success', async () => {
     registerMock.mockResolvedValueOnce({ id: '1', email: 'a@b.com', name: 'A', createdAt: 'x' });
     render(<RegisterPage />);
-    await userEvent.type(screen.getByLabelText(/name/i), 'Alice');
-    await userEvent.type(screen.getByLabelText(/email/i), 'a@b.com');
-    await userEvent.type(screen.getByLabelText(/password/i), 'password123');
+    await userEvent.type(screen.getByLabelText(/^Full name$/i), 'Alice');
+    await userEvent.type(screen.getByLabelText(/^Email address$/i), 'a@b.com');
+    await userEvent.type(screen.getByLabelText(/^Password$/i), 'password123');
     await userEvent.click(screen.getByRole('button', { name: /create account/i }));
     expect(registerMock).toHaveBeenCalledWith({ email: 'a@b.com', password: 'password123', name: 'Alice' });
     expect(push).toHaveBeenCalledWith('/dashboard');

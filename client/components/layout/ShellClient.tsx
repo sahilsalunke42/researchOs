@@ -12,5 +12,5 @@ export function ShellClient({ user, children }: { user: UserDTO; children: React
     router.push('/login');
     router.refresh();
   }
-  return <Shell userName={user.name} onLogout={onLogout}>{children}</Shell>;
+  return <Shell userName={user.name} userEmail={user.email} onLogout={onLogout}>{children}</Shell>;
 }

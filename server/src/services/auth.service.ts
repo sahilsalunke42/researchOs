@@ -8,6 +8,7 @@ import type { UserDTO } from '../types/api.types.js';
 
 interface RegisterInput { email: string; password: string; name: string; }
 interface LoginInput { email: string; password: string; }
+interface UpdateMeInput { name?: string; email?: string; currentPassword?: string; newPassword?: string; }
 
 function toDTO(u: { id: string; email: string; name: string; createdAt: Date }): UserDTO {
   return { id: u.id, email: u.email, name: u.name, createdAt: u.createdAt.toISOString() };
@@ -42,5 +43,43 @@ export const authService = {
     const user = await prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw httpErrors.unauthorized('Session expired', 'SESSION_EXPIRED');
     return toDTO(user);
+  },
+
+  async updateMe(userId: string, input: UpdateMeInput): Promise<UserDTO> {
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw httpErrors.unauthorized('Session expired', 'SESSION_EXPIRED');
+
+    const updateData: { name?: string; email?: string; passwordHash?: string } = {};
+
+    if (input.name && input.name.trim()) {
+      updateData.name = input.name.trim();
+    }
+
+    if (input.email && input.email.trim()) {
+      const email = input.email.toLowerCase().trim();
+      if (email !== user.email) {
+        const existing = await prisma.user.findUnique({ where: { email } });
+        if (existing) throw httpErrors.conflict('Email already registered', 'EMAIL_TAKEN');
+        updateData.email = email;
+      }
+    }
+
+    if (input.newPassword) {
+      if (!input.currentPassword) {
+        throw httpErrors.badRequest('Current password is required to change password', 'PASSWORD_REQUIRED');
+      }
+      const ok = await bcrypt.compare(input.currentPassword, user.passwordHash);
+      if (!ok) {
+        throw httpErrors.badRequest('Current password does not match', 'INVALID_CREDENTIALS');
+      }
+      updateData.passwordHash = await bcrypt.hash(input.newPassword, CONSTANTS.BCRYPT_ROUNDS);
+    }
+
+    const updated = await prisma.user.update({
+      where: { id: userId },
+      data: updateData
+    });
+
+    return toDTO(updated);
   }
 };

@@ -71,3 +71,19 @@ describe('POST /api/auth/logout', () => {
     expect(cookies?.some(c => c.startsWith(`${CONSTANTS.COOKIE_NAME}=`) && /Expires=Thu, 01 Jan 1970/.test(c))).toBe(true);
   });
 });
+
+describe('PATCH /api/auth/me', () => {
+  beforeEach(reset);
+
+  it('updates name and email with auth cookie', async () => {
+    const reg = await request(app).post('/api/auth/register').send({ email: 'orig@b.com', password: 'password123', name: 'Original' });
+    const cookie = (reg.headers['set-cookie'] as unknown as string[])[0]!;
+    const res = await request(app)
+      .patch('/api/auth/me')
+      .set('Cookie', cookie)
+      .send({ name: 'Updated User', email: 'newemail@b.com' });
+    expect(res.status).toBe(200);
+    expect(res.body.user.name).toBe('Updated User');
+    expect(res.body.user.email).toBe('newemail@b.com');
+  });
+});
