@@ -6,6 +6,7 @@ const STATUS_LABEL: Record<ProjectStatusDTO, string> = {
   QUEUED: 'Queued',
   DISCOVERING: 'Discovering',
   INGESTING: 'Ingesting',
+  ANALYZING: 'Analyzing',
   REPORTING: 'Reporting',
   COMPLETE: 'Complete',
   ERROR: 'Error'
@@ -15,6 +16,7 @@ const STATUS_COLOR: Record<ProjectStatusDTO, string> = {
   QUEUED: 'text-text-muted',
   DISCOVERING: 'text-accent-amber',
   INGESTING: 'text-accent-amber',
+  ANALYZING: 'text-accent-amber',
   REPORTING: 'text-accent-amber',
   COMPLETE: 'text-accent-green',
   ERROR: 'text-accent-red'

@@ -44,9 +44,12 @@ export default function LoginPage() {
       <Button type="submit" disabled={submitting} className="w-full">
         {submitting ? 'Signing in…' : 'Sign in'}
       </Button>
-      <p className="text-sm text-text-muted">
-        No account? <Link href="/register" className="text-accent hover:underline">Create one</Link>
-      </p>
+      <div className="flex items-center justify-between text-xs text-text-muted pt-2 border-t border-border/50">
+        <p>
+          No account? <Link href="/register" className="text-accent hover:underline">Create one</Link>
+        </p>
+        <Link href="/privacy" className="hover:text-text-primary underline">Privacy Policy</Link>
+      </div>
     </form>
   );
 }

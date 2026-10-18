@@ -17,18 +17,20 @@ model User {
 }
 
 model Project {
-  id         String        @id @default(uuid())
-  userId     String
-  name       String
-  topic      String
-  paperLimit Int           @default(20)
-  status     ProjectStatus @default(QUEUED)
-  createdAt  DateTime      @default(now())
-  updatedAt  DateTime      @updatedAt
-  user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  papers     Paper[]
-  reports    Report[]
-  agentRuns  AgentRun[]
+  id               String            @id @default(uuid())
+  userId           String
+  name             String
+  topic            String
+  paperLimit       Int               @default(20)
+  status           ProjectStatus     @default(QUEUED)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  papers           Paper[]
+  reports          Report[]
+  agentRuns        AgentRun[]
+  gapCandidates    GapCandidate[]
+  paperComparisons PaperComparison[]
 
   @@index([userId])
 }
@@ -37,13 +39,14 @@ enum ProjectStatus {
   QUEUED
   DISCOVERING
   INGESTING
+  ANALYZING
   REPORTING
   COMPLETE
   ERROR
 }
 
 model Paper {
-  id             String      @id @default(uuid())
+  id             String            @id @default(uuid())
   projectId      String
   externalId     String
   source         PaperSource
@@ -53,15 +56,17 @@ model Paper {
   venue          String?
   abstractText   String?
   pdfUrl         String?
-  citationCount  Int         @default(0)
+  citationCount  Int               @default(0)
   summaryProblem String?
   summaryMethod  String?
   summaryDataset String?
   summaryResults String?
   summaryLimits  String?
-  bookmarked     Boolean     @default(false)
-  createdAt      DateTime    @default(now())
-  project        Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  bookmarked     Boolean           @default(false)
+  createdAt      DateTime          @default(now())
+  project        Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  gapEvidence    GapEvidence[]
+  comparisons    PaperComparison[]
 
   @@index([projectId])
   @@index([externalId])
@@ -70,6 +75,7 @@ model Paper {
 enum PaperSource {
   SEMANTIC_SCHOLAR
   ARXIV
+  OPENALEX
 }
 
 model Report {
@@ -100,6 +106,8 @@ model AgentRun {
 enum AgentName {
   DISCOVERY
   INGESTION
+  ANALYSIS
+  GAPS
   REPORT
 }
 
@@ -109,4 +117,72 @@ enum AgentStatus {
   COMPLETE
   ERROR
   SKIPPED
+}
+
+model GapCandidate {
+  id                String              @id @default(uuid())
+  projectId         String
+  topicA            String
+  topicB            String
+  statement         String
+  coOccurrenceScore Float
+  alpha             Float
+  beta              Float
+  validationStatus  GapValidationStatus @default(INCONCLUSIVE)
+  createdAt         DateTime            @default(now())
+  project           Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  evidence          GapEvidence[]
+
+  @@index([projectId])
+}
+
+enum GapValidationStatus {
+  SUPPORTED
+  PARTIALLY_SUPPORTED
+  UNSUPPORTED
+  INCONCLUSIVE
+}
+
+model GapEvidence {
+  id           String           @id @default(uuid())
+  candidateId  String
+  paperId      String?
+  paperTitle   String?
+  passage      String
+  pageNumber   Int?
+  sectionTitle String?
+  relation     EvidenceRelation @default(UNCLEAR)
+  createdAt    DateTime         @default(now())
+  candidate    GapCandidate     @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  paper        Paper?           @relation(fields: [paperId], references: [id], onDelete: SetNull)
+
+  @@index([candidateId])
+  @@index([paperId])
+}
+
+enum EvidenceRelation {
+  SUPPORTS
+  CONTRADICTS
+  PARTIALLY_SUPPORTS
+  ADDRESSES_ALREADY
+  UNCLEAR
+}
+
+model PaperComparison {
+  id          String   @id @default(uuid())
+  projectId   String
+  paperId     String
+  question    String?
+  methodology String?
+  dataset     String?
+  metrics     String?
+  findings    String?
+  limitations String?
+  futureWork  String?
+  createdAt   DateTime @default(now())
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  paper       Paper    @relation(fields: [paperId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, paperId])
+  @@index([projectId])
 }

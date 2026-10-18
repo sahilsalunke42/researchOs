@@ -22,8 +22,16 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 }
 
 export const api = {
-  get:   <T>(path: string) => request<T>('GET', path),
-  post:  <T>(path: string, body?: unknown) => request<T>('POST', path, body),
-  patch: <T>(path: string, body?: unknown) => request<T>('PATCH', path, body),
-  del:   <T>(path: string) => request<T>('DELETE', path)
+  get:     <T>(path: string) => request<T>('GET', path),
+  post:    <T>(path: string, body?: unknown) => request<T>('POST', path, body),
+  patch:   <T>(path: string, body?: unknown) => request<T>('PATCH', path, body),
+  del:     <T>(path: string) => request<T>('DELETE', path),
+  getText: async (path: string): Promise<string> => {
+    const res = await fetch(path, { method: 'GET', credentials: 'include' });
+    const text = await res.text();
+    if (!res.ok) {
+      throw new ApiError(res.status, 'EXPORT_FAILED', text || `HTTP ${res.status}`);
+    }
+    return text;
+  }
 };

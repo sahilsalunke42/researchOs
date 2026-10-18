@@ -20,7 +20,7 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        'shrink-0 border-r border-border bg-bg-surface transition-[width] duration-200 ease-snap',
+        'shrink-0 border-r border-border bg-bg-surface transition-[width] duration-200 ease-snap flex flex-col justify-between',
         collapsed ? 'w-16' : 'w-[220px]'
       )}
       aria-label="Primary navigation"
@@ -44,6 +44,13 @@ export function Sidebar() {
           );
         })}
       </nav>
+      {!collapsed && (
+        <div className="p-4 border-t border-border">
+          <Link href="/privacy" className="text-xs text-text-muted hover:text-text-primary block">
+            Privacy Policy
+          </Link>
+        </div>
+      )}
     </aside>
   );
 }

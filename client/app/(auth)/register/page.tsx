@@ -49,9 +49,12 @@ export default function RegisterPage() {
       <Button type="submit" disabled={submitting} className="w-full">
         {submitting ? 'Creating account…' : 'Create account'}
       </Button>
-      <p className="text-sm text-text-muted">
-        Already have an account? <Link href="/login" className="text-accent hover:underline">Sign in</Link>
-      </p>
+      <div className="flex items-center justify-between text-xs text-text-muted pt-2 border-t border-border/50">
+        <p>
+          Already have an account? <Link href="/login" className="text-accent hover:underline">Sign in</Link>
+        </p>
+        <Link href="/privacy" className="hover:text-text-primary underline">Privacy Policy</Link>
+      </div>
     </form>
   );
 }

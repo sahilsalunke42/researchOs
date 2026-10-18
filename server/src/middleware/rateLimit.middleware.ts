@@ -4,6 +4,7 @@ import { CONSTANTS } from '../config/constants.js';
 const shared = {
   standardHeaders: true,
   legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === 'test',
   message: { error: { code: 'RATE_LIMITED', message: 'Too many requests, please try again later.' } }
 };
 

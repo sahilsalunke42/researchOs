@@ -1,28 +1,30 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import hashlib
 import logging
+from pathlib import Path
 import re
 import tempfile
-import uuid
-from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Callable, Iterable
 from urllib.parse import urlparse
+import uuid
 
-import requests
 from qdrant_client.models import Distance, PointStruct, VectorParams
+import requests
 
 from app.config.settings import QDRANT_COLLECTION
 from app.rag.chunking import chunk_text, strip_references
 from app.rag.embeddings import generate_embeddings_batch
 from app.rag.ingestion import extract_pdf_text
+from app.security.document_safety import validate_download_url
 from app.services.paper_service import Paper, dedupe_papers
 from app.vectordb.qdrantClient import client
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_COLLECTION_NAME = QDRANT_COLLECTION
+MAX_PDF_SIZE_BYTES = 25 * 1024 * 1024  # 25 MB max
 
 
 @dataclass(frozen=True)
@@ -74,31 +76,53 @@ def _paper_from_pdf_url(paper: Paper, pdf_url: str | None) -> str:
     raise ValueError(f"no downloadable PDF URL for paper: {paper.title}")
 
 
-def download_pdf(url: str, destination: Path, timeout: int = 60) -> Path:
-    response = requests.get(url, stream=True, timeout=timeout)
+def download_pdf(url: str, destination: Path, timeout: int = 30) -> Path:
+    # SSRF guard: validates scheme, hostname, DNS resolution and blocks private/loopback CIDRs
+    safe_url = validate_download_url(url)
+    response = requests.get(safe_url, stream=True, timeout=timeout)
     response.raise_for_status()
+
+    content_length = response.headers.get("Content-Length")
+    if content_length and int(content_length) > MAX_PDF_SIZE_BYTES:
+        raise ValueError(f"PDF exceeds maximum allowed size ({MAX_PDF_SIZE_BYTES} bytes)")
+
     destination.parent.mkdir(parents=True, exist_ok=True)
+    downloaded_size = 0
     with destination.open("wb") as handle:
         for chunk in response.iter_content(chunk_size=8192):
             if chunk:
+                downloaded_size += len(chunk)
+                if downloaded_size > MAX_PDF_SIZE_BYTES:
+                    raise ValueError(f"PDF exceeded maximum allowed size during download ({MAX_PDF_SIZE_BYTES} bytes)")
                 handle.write(chunk)
     return destination
 
 
 def ensure_collection(collection_name: str, vector_size: int) -> None:
     collections = client.get_collections().collections
-    if any(collection.name == collection_name for collection in collections):
-        return
-    client.create_collection(
-        collection_name=collection_name,
-        vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
-    )
+    if not any(collection.name == collection_name for collection in collections):
+        client.create_collection(
+            collection_name=collection_name,
+            vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
+        )
+        try:
+            client.create_payload_index(
+                collection_name=collection_name,
+                field_name="project_id",
+                field_schema="keyword",
+            )
+            client.create_payload_index(
+                collection_name=collection_name,
+                field_name="user_id",
+                field_schema="keyword",
+            )
+        except Exception:
+            pass
 
 
 def build_point_id(paper: Paper, chunk_index: int, chunk_text_value: str) -> str:
     key = paper_key(paper)
     digest = hashlib.sha1(f"{key}:{chunk_index}:{chunk_text_value}".encode("utf-8")).hexdigest()
-    # Qdrant accepts point IDs as unsigned integers or UUIDs; use deterministic UUIDs for idempotent upserts.
     return str(uuid.uuid5(uuid.NAMESPACE_DNS, digest))
 
 
@@ -109,6 +133,8 @@ def build_payload(
     chunk_index: int,
     total_chunks: int,
     chunk_text_value: str,
+    project_id: str | None = None,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     return {
         "paper_key": paper_key(paper),
@@ -124,6 +150,8 @@ def build_payload(
         "chunk_index": chunk_index,
         "total_chunks": total_chunks,
         "text": chunk_text_value,
+        "project_id": project_id,
+        "user_id": user_id,
     }
 
 
@@ -134,6 +162,8 @@ def prepare_points(
     source_url: str,
     chunk_size: int = 800,
     overlap: int = 120,
+    project_id: str | None = None,
+    user_id: str | None = None,
 ) -> list[PointStruct]:
     cleaned_text = clean_extracted_text(text)
     chunks = chunk_text(cleaned_text, chunk_size=chunk_size, overlap=overlap)
@@ -150,6 +180,8 @@ def prepare_points(
             chunk_index=index,
             total_chunks=total_chunks,
             chunk_text_value=chunk,
+            project_id=project_id,
+            user_id=user_id,
         )
         points.append(
             PointStruct(
@@ -169,6 +201,8 @@ def ingest_pdf_file(
     source_url: str | None = None,
     chunk_size: int = 800,
     overlap: int = 120,
+    project_id: str | None = None,
+    user_id: str | None = None,
 ) -> IngestionResult:
     path = Path(pdf_path)
     text = extract_pdf_text(path)
@@ -179,6 +213,8 @@ def ingest_pdf_file(
         source_url=resolved_source_url,
         chunk_size=chunk_size,
         overlap=overlap,
+        project_id=project_id,
+        user_id=user_id,
     )
     if not points:
         return IngestionResult(paper_key=paper_key(paper), chunk_count=0, point_ids=(), source_url=resolved_source_url)
@@ -204,12 +240,14 @@ def ingest_papers(
     pdf_url_resolver: Callable[[Paper], str | None] | None = None,
     chunk_size: int = 800,
     overlap: int = 120,
+    project_id: str | None = None,
+    user_id: str | None = None,
 ) -> list[IngestionResult]:
     results: list[IngestionResult] = []
     for paper in dedupe_papers(list(papers)):
         pdf_url = pdf_url_resolver(paper) if pdf_url_resolver else None
-        source_url = _paper_from_pdf_url(paper, pdf_url)
         try:
+            source_url = _paper_from_pdf_url(paper, pdf_url)
             with tempfile.TemporaryDirectory() as temp_dir:
                 filename = sanitize_filename(paper_key(paper))
                 pdf_path = Path(temp_dir) / f"{filename}.pdf"
@@ -222,6 +260,8 @@ def ingest_papers(
                         source_url=source_url,
                         chunk_size=chunk_size,
                         overlap=overlap,
+                        project_id=project_id,
+                        user_id=user_id,
                     )
                 )
         except Exception:

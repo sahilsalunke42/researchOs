@@ -1,9 +1,10 @@
-
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
+import logging
 from typing import Any
+
+from qdrant_client.models import FieldCondition, Filter, MatchValue
 
 from app.config.settings import QDRANT_COLLECTION
 from app.rag.embeddings import generate_embeddings
@@ -40,6 +41,8 @@ def retrieve_context(
     query: str,
     limit: int = 5,
     collection_name: str = DEFAULT_COLLECTION_NAME,
+    project_id: str | None = None,
+    user_id: str | None = None,
 ) -> list[RetrievedChunk]:
     query = query.strip()
     if not query:
@@ -48,12 +51,28 @@ def retrieve_context(
         raise ValueError("limit must be greater than zero")
 
     query_vector = generate_embeddings(query)
-    results = client.query_points(
-        collection_name=collection_name,
-        query=query_vector,
-        limit=limit,
-        with_payload=True,
-    )
+
+    # Multi-tenant isolation filter
+    query_filter: Filter | None = None
+    conditions: list[FieldCondition] = []
+    if project_id:
+        conditions.append(FieldCondition(key="project_id", match=MatchValue(value=project_id)))
+    if user_id:
+        conditions.append(FieldCondition(key="user_id", match=MatchValue(value=user_id)))
+    if conditions:
+        query_filter = Filter(must=conditions)
+
+    try:
+        results = client.query_points(
+            collection_name=collection_name,
+            query=query_vector,
+            query_filter=query_filter,
+            limit=limit,
+            with_payload=True,
+        )
+    except Exception as exc:
+        logger.warning("Qdrant query_points failed: %s", exc)
+        return []
 
     chunks: list[RetrievedChunk] = []
     for point in _iter_points(results):
@@ -136,5 +155,5 @@ def extract_sources(chunks: list[RetrievedChunk]) -> list[SourceCitation]:
     return sources
 
 
-def retrieveContext(query: str, limit: int = 5):
-    return [chunk.text for chunk in retrieve_context(query=query, limit=limit)]
+def retrieveContext(query: str, limit: int = 5, project_id: str | None = None):
+    return [chunk.text for chunk in retrieve_context(query=query, limit=limit, project_id=project_id)]
