@@ -135,10 +135,20 @@ def validate_candidate_gap(
             f"Neither widespread limitations nor definitive solutions were confirmed in the indexed papers."
         )
 
+    statement = candidate.statement
+    if supporting:
+        top_passage = supporting[0].passage.strip()
+        if top_passage.endswith("."):
+            top_passage = top_passage[:-1]
+        statement = (
+            f"Unresolved research gap connecting '{candidate.topic_a.title()}' and '{candidate.topic_b.title()}': "
+            f"Evidence indicates an open challenge in literature, noting: \"{top_passage}.\""
+        )
+
     return ValidatedGap(
         topic_a=candidate.topic_a,
         topic_b=candidate.topic_b,
-        statement=candidate.statement,
+        statement=statement,
         co_occurrence_score=candidate.co_occurrence_score,
         validation_status=status,
         confidence_rationale=rationale,

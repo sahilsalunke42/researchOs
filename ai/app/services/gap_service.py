@@ -11,7 +11,7 @@ from app.services.paper_service import Paper
 
 logger = logging.getLogger(__name__)
 
-# Standard stop words for academic NLP keyword filtering
+# Standard stop words and generic academic terminology to filter out
 STOP_WORDS = {
     "a", "about", "above", "after", "again", "against", "all", "am", "an", "and", "any", "are",
     "arent", "as", "at", "be", "because", "been", "before", "being", "below", "between", "both",
@@ -32,6 +32,15 @@ STOP_WORDS = {
     "approach", "approaches", "result", "results", "analysis", "system", "systems", "using",
     "based", "proposed", "model", "models", "data", "performance", "evaluation", "presents",
     "demonstrates", "investigates", "provides", "show", "shows", "shown", "work", "works",
+    "development", "application", "applications", "technology", "technologies", "process",
+    "processes", "future", "existing", "high", "low", "new", "different", "various", "important",
+    "field", "context", "level", "information", "article", "author", "authors", "effect",
+    "effects", "factor", "factors", "case", "review", "general", "domain", "domains", "task",
+    "tasks", "features", "feature", "problem", "problems", "solution", "solutions", "time",
+    "user", "users", "framework", "frameworks", "medical", "clinical", "propose", "proposes",
+    "proposing", "introduce", "introduces", "introducing", "explore", "explores", "exploring",
+    "present", "presents", "presenting", "need", "needs", "needed", "needing", "mechanism", "mechanisms",
+    "order", "state", "states", "well", "good", "better", "best"
 }
 
 
@@ -60,26 +69,29 @@ class DoubleThresholdResult:
 def extract_keywords_from_paper(paper: Paper, top_k: int = 12) -> list[str]:
     """
     Extracts representative key terms from paper title and abstract.
-    Tokenizes, strips stopwords and non-alphanumeric chars, and filters by frequency.
+    Tokenizes, strips stopwords, and favors meaningful domain bigrams and technical terms.
     """
     text = f"{paper.title} {paper.abstract or ''}".lower()
-    # Extract unigrams and bigrams
     words = re.findall(r"\b[a-zA-Z][a-zA-Z0-9_\-]{2,}\b", text)
-    filtered = [w for w in words if w not in STOP_WORDS and len(w) > 2]
+    filtered = [w for w in words if w not in STOP_WORDS and len(w) > 3]
 
-    # Term frequency
     freqs: dict[str, int] = {}
     for w in filtered:
         freqs[w] = freqs.get(w, 0) + 1
 
-    # Extract common bigrams
+    # Extract domain bigrams with boosted weight
     for i in range(len(filtered) - 1):
         w1, w2 = filtered[i], filtered[i + 1]
-        bigram = f"{w1} {w2}"
-        freqs[bigram] = freqs.get(bigram, 0) + 1
+        if w1 != w2:
+            bigram = f"{w1} {w2}"
+            freqs[bigram] = freqs.get(bigram, 0) + 3
 
-    # Sort by frequency and length
-    ranked = sorted(freqs.keys(), key=lambda k: (freqs[k], len(k)), reverse=True)
+    # Rank bigrams and specific terms higher than generic single words
+    ranked = sorted(
+        freqs.keys(),
+        key=lambda k: (freqs[k] * (2 if " " in k else 1), len(k)),
+        reverse=True,
+    )
     return ranked[:top_k]
 
 
@@ -157,15 +169,21 @@ def generate_double_threshold_gaps(
                 continue
             seen_pairs.add(pair)
 
+            # Skip pairs that share tokens (e.g. 'transformer' and 'transformer architecture')
+            words_1 = set(k1.split())
+            words_2 = set(k2.split())
+            if words_1.intersection(words_2):
+                continue
+
             if alpha <= score <= beta:
                 # Find supporting papers mentioning either or both
                 common_papers = [
                     papers[idx].title for idx in paper_indices[k1].union(paper_indices[k2])
                 ]
                 statement = (
-                    f"Candidate intersection between '{k1}' and '{k2}' shows moderate association "
-                    f"(co-occurrence score = {score:.3f}, alpha = {alpha}, beta = {beta}), indicating an "
-                    f"emerging but underexplored research synergy in the analyzed corpus."
+                    f"Underexplored intersection between '{k1.title()}' and '{k2.title()}': "
+                    f"While the literature investigates both areas, there is a lack of unified empirical benchmarks "
+                    f"and standardized methodologies bridging them."
                 )
                 candidates.append(
                     GapCandidate(

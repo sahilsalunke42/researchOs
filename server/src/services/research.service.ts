@@ -1,4 +1,6 @@
 import { EventEmitter } from 'node:events';
+import { Readable } from 'node:stream';
+import * as readline from 'node:readline';
 import { prisma } from '../db/prisma.js';
 import { env } from '../config/env.js';
 import { logger } from '../utils/logger.js';
@@ -89,6 +91,7 @@ export const researchService = {
     try {
       // 1. Stage: Discovery
       this.emitEvent(projectId, 'stage.updated', { stage: 'DISCOVERY', status: 'RUNNING' });
+      await prisma.agentRun.deleteMany({ where: { projectId } });
       await prisma.agentRun.create({
         data: {
           projectId,
@@ -98,181 +101,370 @@ export const researchService = {
         }
       });
 
-      // Call AI Service /research
-      logger.info('Calling AI service for research', { projectId, topic, paperLimit });
-      const aiResponse = await fetch(`${env.AI_SERVICE_URL}/research`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Service-Token': env.AI_SERVICE_SECRET
-        },
-        body: JSON.stringify({
-          topic,
-          paper_limit: paperLimit,
-          project_id: projectId,
-          user_id: userId,
-          alpha: 0.15,
-          beta: 0.65
-        })
-      });
+      // Call AI Service for research (streaming with batch fallback)
+      logger.info('Calling AI service for research stream', { projectId, topic, paperLimit });
+      let aiResponse: Response;
+      let isStreamMode = true;
 
-      if (!aiResponse.ok) {
-        const errorText = await aiResponse.text();
-        throw new Error(`AI service responded with HTTP ${aiResponse.status}: ${errorText}`);
+      try {
+        aiResponse = await fetch(`${env.AI_SERVICE_URL}/research/stream`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Service-Token': env.AI_SERVICE_SECRET
+          },
+          body: JSON.stringify({
+            topic,
+            paper_limit: paperLimit,
+            project_id: projectId,
+            user_id: userId,
+            alpha: 0.15,
+            beta: 0.65
+          })
+        });
+
+        if (!aiResponse.ok || !aiResponse.body) {
+          throw new Error(`Streaming returned HTTP ${aiResponse.status}`);
+        }
+      } catch (streamErr) {
+        logger.warn('AI streaming unavailable, falling back to batch endpoint', { error: String(streamErr) });
+        isStreamMode = false;
+        aiResponse = await fetch(`${env.AI_SERVICE_URL}/research`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Service-Token': env.AI_SERVICE_SECRET
+          },
+          body: JSON.stringify({
+            topic,
+            paper_limit: paperLimit,
+            project_id: projectId,
+            user_id: userId,
+            alpha: 0.15,
+            beta: 0.65
+          })
+        });
+
+        if (!aiResponse.ok) {
+          const errorText = await aiResponse.text();
+          throw new Error(`AI service responded with HTTP ${aiResponse.status}: ${errorText}`);
+        }
       }
 
-      const result = (await aiResponse.json()) as {
-        topic: string;
-        project_id: string;
-        papers_processed: number;
-        total_chunks: number;
-        papers: Array<{
-          title: string;
-          authors: string[];
-          year: number | null;
-          doi: string | null;
-          source: string;
-          url: string | null;
-          abstract: string | null;
-          external_id: string | null;
-          relevance_score: number | null;
-        }>;
-        gap_candidates: Array<{
-          topic_a: string;
-          topic_b: string;
-          statement: string;
-          co_occurrence_score: number;
-          validation_status: string;
-          confidence_rationale: string;
-          evidence_items: Array<{
-            paper_title: string;
-            paper_doi: string | null;
-            passage: string;
-            relation: string;
-          }>;
-        }>;
-        report: string;
+      const statusMap: Record<string, 'SUPPORTED' | 'PARTIALLY_SUPPORTED' | 'UNSUPPORTED' | 'INCONCLUSIVE'> = {
+        supported: 'SUPPORTED',
+        partially_supported: 'PARTIALLY_SUPPORTED',
+        unsupported: 'UNSUPPORTED',
+        inconclusive: 'INCONCLUSIVE'
       };
 
-      // 2. Persist Discovered Papers
-      this.emitEvent(projectId, 'stage.updated', { stage: 'INGESTION', status: 'RUNNING' });
-      const createdPapers = [];
-      for (const p of result.papers || []) {
-        const sourceEnum = p.source?.toLowerCase().includes('arxiv') ? 'ARXIV' : 'SEMANTIC_SCHOLAR';
-        const paper = await prisma.paper.create({
-          data: {
-            projectId,
-            externalId: p.external_id || p.doi || p.url || `paper-${Date.now()}-${Math.random()}`,
-            doi: p.doi || null,
-            source: sourceEnum,
-            title: p.title,
-            authors: p.authors || [],
-            year: p.year,
-            venue: p.source,
-            abstractText: p.abstract,
-            pdfUrl: p.url,
-            citationCount: 0
+      const relationMap: Record<string, 'SUPPORTS' | 'CONTRADICTS' | 'PARTIALLY_SUPPORTS' | 'ADDRESSES_ALREADY' | 'UNCLEAR'> = {
+        supports: 'SUPPORTS',
+        contradicts: 'CONTRADICTS',
+        partially_supports: 'PARTIALLY_SUPPORTS',
+        addresses_already: 'ADDRESSES_ALREADY'
+      };
+
+      if (isStreamMode && aiResponse.body) {
+        const readable = Readable.fromWeb(aiResponse.body as any);
+        const rl = readline.createInterface({ input: readable, crlfDelay: Infinity });
+
+        let papersCount = 0;
+        let gapsCount = 0;
+
+        for await (const line of rl) {
+          if (!line.trim()) continue;
+          const event = JSON.parse(line);
+
+          if (event.stage === 'ERROR') {
+            throw new Error(event.error || 'AI pipeline failed');
           }
-        });
-        createdPapers.push(paper);
-        this.emitEvent(projectId, 'paper.discovered', { paperId: paper.id, title: paper.title });
-      }
 
-      // 3. Persist Candidate Gaps
-      this.emitEvent(projectId, 'stage.updated', { stage: 'GAPS', status: 'RUNNING' });
-      for (const gap of result.gap_candidates || []) {
-        const statusMap: Record<string, 'SUPPORTED' | 'PARTIALLY_SUPPORTED' | 'UNSUPPORTED' | 'INCONCLUSIVE'> = {
-          supported: 'SUPPORTED',
-          partially_supported: 'PARTIALLY_SUPPORTED',
-          unsupported: 'UNSUPPORTED',
-          inconclusive: 'INCONCLUSIVE'
+          if (event.stage === 'DISCOVERY' && event.status === 'COMPLETE') {
+            this.emitEvent(projectId, 'stage.updated', { stage: 'DISCOVERY', status: 'COMPLETE' });
+            const papers = event.papers || [];
+            papersCount = papers.length;
+            for (const p of papers) {
+              const sourceEnum = p.source?.toLowerCase().includes('arxiv') ? 'ARXIV' : 'SEMANTIC_SCHOLAR';
+              const paper = await prisma.paper.create({
+                data: {
+                  projectId,
+                  externalId: p.external_id || p.doi || p.url || `paper-${Date.now()}-${Math.random()}`,
+                  doi: p.doi || null,
+                  source: sourceEnum,
+                  title: p.title,
+                  authors: p.authors || [],
+                  year: p.year,
+                  venue: p.source,
+                  abstractText: p.abstract,
+                  pdfUrl: p.url,
+                  citationCount: 0
+                }
+              });
+              this.emitEvent(projectId, 'paper.discovered', { paperId: paper.id, title: paper.title });
+            }
+          } else if (event.stage === 'INGESTION') {
+            if (event.status === 'RUNNING') {
+              await prisma.project.update({ where: { id: projectId }, data: { status: 'INGESTING' } });
+              this.emitEvent(projectId, 'stage.updated', { stage: 'INGESTION', status: 'RUNNING' });
+            } else if (event.status === 'COMPLETE') {
+              this.emitEvent(projectId, 'stage.updated', { stage: 'INGESTION', status: 'COMPLETE' });
+            }
+          } else if (event.stage === 'ANALYSIS') {
+            if (event.status === 'RUNNING') {
+              await prisma.project.update({ where: { id: projectId }, data: { status: 'ANALYZING' } });
+              this.emitEvent(projectId, 'stage.updated', { stage: 'ANALYSIS', status: 'RUNNING' });
+            } else if (event.status === 'COMPLETE') {
+              this.emitEvent(projectId, 'stage.updated', { stage: 'ANALYSIS', status: 'COMPLETE' });
+            }
+          } else if (event.stage === 'GAPS') {
+            if (event.status === 'RUNNING') {
+              this.emitEvent(projectId, 'stage.updated', { stage: 'GAPS', status: 'RUNNING' });
+            } else if (event.status === 'COMPLETE') {
+              const gapCandidates = event.gap_candidates || [];
+              gapsCount = gapCandidates.length;
+
+              for (const gap of gapCandidates) {
+                const validationStatus = statusMap[gap.validation_status?.toLowerCase()] || 'INCONCLUSIVE';
+                const candidate = await prisma.gapCandidate.create({
+                  data: {
+                    projectId,
+                    topicA: gap.topic_a,
+                    topicB: gap.topic_b,
+                    statement: gap.statement,
+                    coOccurrenceScore: gap.co_occurrence_score,
+                    alpha: 0.15,
+                    beta: 0.65,
+                    validationStatus,
+                    evidence: {
+                      create: (gap.evidence_items || []).map((e: any) => ({
+                        paperTitle: e.paper_title,
+                        paperDoi: e.paper_doi,
+                        passage: e.passage,
+                        relation: relationMap[e.relation?.toLowerCase()] || 'UNCLEAR'
+                      }))
+                    }
+                  }
+                });
+                this.emitEvent(projectId, 'gap.detected', {
+                  candidateId: candidate.id,
+                  topicA: candidate.topicA,
+                  topicB: candidate.topicB,
+                  status: candidate.validationStatus
+                });
+              }
+              this.emitEvent(projectId, 'stage.updated', { stage: 'GAPS', status: 'COMPLETE' });
+            }
+          } else if (event.stage === 'REPORT') {
+            if (event.status === 'RUNNING') {
+              await prisma.project.update({ where: { id: projectId }, data: { status: 'REPORTING' } });
+              this.emitEvent(projectId, 'stage.updated', { stage: 'REPORT', status: 'RUNNING' });
+            } else if (event.status === 'COMPLETE') {
+              await prisma.report.upsert({
+                where: { projectId },
+                create: {
+                  projectId,
+                  content: event.report || ''
+                },
+                update: {
+                  content: event.report || ''
+                }
+              });
+              this.emitEvent(projectId, 'stage.updated', { stage: 'REPORT', status: 'COMPLETE' });
+              this.emitEvent(projectId, 'report.completed', { projectId });
+            }
+          } else if (event.stage === 'COMPLETE') {
+            const totalDuration = Date.now() - startTime;
+            await prisma.project.update({
+              where: { id: projectId },
+              data: { status: 'COMPLETE' }
+            });
+
+            await prisma.agentRun.deleteMany({ where: { projectId } });
+            const stages: Array<'DISCOVERY' | 'INGESTION' | 'ANALYSIS' | 'GAPS' | 'REPORT'> = [
+              'DISCOVERY',
+              'INGESTION',
+              'ANALYSIS',
+              'GAPS',
+              'REPORT'
+            ];
+            for (const stage of stages) {
+              await prisma.agentRun.create({
+                data: {
+                  projectId,
+                  agentName: stage,
+                  status: 'COMPLETE',
+                  startedAt: new Date(startTime),
+                  completedAt: new Date(),
+                  durationMs: Math.round(totalDuration / stages.length)
+                }
+              });
+            }
+
+            this.emitEvent(projectId, 'run.completed', {
+              projectId,
+              papersCount,
+              gapsCount,
+              durationMs: totalDuration
+            });
+          }
+        }
+      } else {
+        // Fallback: process batch result
+        const result = (await aiResponse.json()) as {
+          topic: string;
+          project_id: string;
+          papers_processed: number;
+          total_chunks: number;
+          papers: Array<{
+            title: string;
+            authors: string[];
+            year: number | null;
+            doi: string | null;
+            source: string;
+            url: string | null;
+            abstract: string | null;
+            external_id: string | null;
+            relevance_score: number | null;
+          }>;
+          gap_candidates: Array<{
+            topic_a: string;
+            topic_b: string;
+            statement: string;
+            co_occurrence_score: number;
+            validation_status: string;
+            confidence_rationale: string;
+            evidence_items: Array<{
+              paper_title: string;
+              paper_doi: string | null;
+              passage: string;
+              relation: string;
+            }>;
+          }>;
+          report: string;
         };
-        const validationStatus = statusMap[gap.validation_status?.toLowerCase()] || 'INCONCLUSIVE';
 
-        const candidate = await prisma.gapCandidate.create({
-          data: {
-            projectId,
-            topicA: gap.topic_a,
-            topicB: gap.topic_b,
-            statement: gap.statement,
-            coOccurrenceScore: gap.co_occurrence_score,
-            alpha: 0.15,
-            beta: 0.65,
-            validationStatus,
-            evidence: {
-              create: (gap.evidence_items || []).map((e) => {
-                const relationMap: Record<string, 'SUPPORTS' | 'CONTRADICTS' | 'PARTIALLY_SUPPORTS' | 'ADDRESSES_ALREADY' | 'UNCLEAR'> = {
-                  supports: 'SUPPORTS',
-                  contradicts: 'CONTRADICTS',
-                  partially_supports: 'PARTIALLY_SUPPORTS',
-                  addresses_already: 'ADDRESSES_ALREADY'
-                };
-                return {
+        this.emitEvent(projectId, 'stage.updated', { stage: 'DISCOVERY', status: 'COMPLETE' });
+
+        await prisma.project.update({
+          where: { id: projectId },
+          data: { status: 'INGESTING' }
+        });
+        this.emitEvent(projectId, 'stage.updated', { stage: 'INGESTION', status: 'RUNNING' });
+        const createdPapers = [];
+        for (const p of result.papers || []) {
+          const sourceEnum = p.source?.toLowerCase().includes('arxiv') ? 'ARXIV' : 'SEMANTIC_SCHOLAR';
+          const paper = await prisma.paper.create({
+            data: {
+              projectId,
+              externalId: p.external_id || p.doi || p.url || `paper-${Date.now()}-${Math.random()}`,
+              doi: p.doi || null,
+              source: sourceEnum,
+              title: p.title,
+              authors: p.authors || [],
+              year: p.year,
+              venue: p.source,
+              abstractText: p.abstract,
+              pdfUrl: p.url,
+              citationCount: 0
+            }
+          });
+          createdPapers.push(paper);
+          this.emitEvent(projectId, 'paper.discovered', { paperId: paper.id, title: paper.title });
+        }
+        this.emitEvent(projectId, 'stage.updated', { stage: 'INGESTION', status: 'COMPLETE' });
+
+        await prisma.project.update({
+          where: { id: projectId },
+          data: { status: 'ANALYZING' }
+        });
+        this.emitEvent(projectId, 'stage.updated', { stage: 'ANALYSIS', status: 'RUNNING' });
+        this.emitEvent(projectId, 'stage.updated', { stage: 'ANALYSIS', status: 'COMPLETE' });
+
+        this.emitEvent(projectId, 'stage.updated', { stage: 'GAPS', status: 'RUNNING' });
+        for (const gap of result.gap_candidates || []) {
+          const validationStatus = statusMap[gap.validation_status?.toLowerCase()] || 'INCONCLUSIVE';
+          const candidate = await prisma.gapCandidate.create({
+            data: {
+              projectId,
+              topicA: gap.topic_a,
+              topicB: gap.topic_b,
+              statement: gap.statement,
+              coOccurrenceScore: gap.co_occurrence_score,
+              alpha: 0.15,
+              beta: 0.65,
+              validationStatus,
+              evidence: {
+                create: (gap.evidence_items || []).map((e) => ({
                   paperTitle: e.paper_title,
                   paperDoi: e.paper_doi,
                   passage: e.passage,
                   relation: relationMap[e.relation?.toLowerCase()] || 'UNCLEAR'
-                };
-              })
+                }))
+              }
             }
-          }
-        });
-        this.emitEvent(projectId, 'gap.detected', {
-          candidateId: candidate.id,
-          topicA: candidate.topicA,
-          topicB: candidate.topicB,
-          status: candidate.validationStatus
-        });
-      }
-
-      // 4. Persist Generated Report
-      this.emitEvent(projectId, 'stage.updated', { stage: 'REPORT', status: 'RUNNING' });
-      await prisma.report.upsert({
-        where: { projectId },
-        create: {
-          projectId,
-          content: result.report
-        },
-        update: {
-          content: result.report
+          });
+          this.emitEvent(projectId, 'gap.detected', {
+            candidateId: candidate.id,
+            topicA: candidate.topicA,
+            topicB: candidate.topicB,
+            status: candidate.validationStatus
+          });
         }
-      });
-      this.emitEvent(projectId, 'report.completed', { projectId });
+        this.emitEvent(projectId, 'stage.updated', { stage: 'GAPS', status: 'COMPLETE' });
 
-      // 5. Update Project Status to COMPLETE
-      const totalDuration = Date.now() - startTime;
-      await prisma.project.update({
-        where: { id: projectId },
-        data: { status: 'COMPLETE' }
-      });
-
-      // Record completed AgentRuns
-      const stages: Array<'DISCOVERY' | 'INGESTION' | 'ANALYSIS' | 'GAPS' | 'REPORT'> = [
-        'DISCOVERY',
-        'INGESTION',
-        'ANALYSIS',
-        'GAPS',
-        'REPORT'
-      ];
-      for (const stage of stages) {
-        await prisma.agentRun.create({
-          data: {
+        await prisma.project.update({
+          where: { id: projectId },
+          data: { status: 'REPORTING' }
+        });
+        this.emitEvent(projectId, 'stage.updated', { stage: 'REPORT', status: 'RUNNING' });
+        await prisma.report.upsert({
+          where: { projectId },
+          create: {
             projectId,
-            agentName: stage,
-            status: 'COMPLETE',
-            startedAt: new Date(startTime),
-            completedAt: new Date(),
-            durationMs: Math.round(totalDuration / stages.length)
+            content: result.report
+          },
+          update: {
+            content: result.report
           }
         });
-      }
+        this.emitEvent(projectId, 'stage.updated', { stage: 'REPORT', status: 'COMPLETE' });
+        this.emitEvent(projectId, 'report.completed', { projectId });
 
-      this.emitEvent(projectId, 'run.completed', {
-        projectId,
-        papersCount: createdPapers.length,
-        gapsCount: result.gap_candidates?.length || 0,
-        durationMs: totalDuration
-      });
+        const totalDuration = Date.now() - startTime;
+        await prisma.project.update({
+          where: { id: projectId },
+          data: { status: 'COMPLETE' }
+        });
+
+        await prisma.agentRun.deleteMany({ where: { projectId } });
+        const stages: Array<'DISCOVERY' | 'INGESTION' | 'ANALYSIS' | 'GAPS' | 'REPORT'> = [
+          'DISCOVERY',
+          'INGESTION',
+          'ANALYSIS',
+          'GAPS',
+          'REPORT'
+        ];
+        for (const stage of stages) {
+          await prisma.agentRun.create({
+            data: {
+              projectId,
+              agentName: stage,
+              status: 'COMPLETE',
+              startedAt: new Date(startTime),
+              completedAt: new Date(),
+              durationMs: Math.round(totalDuration / stages.length)
+            }
+          });
+        }
+
+        this.emitEvent(projectId, 'run.completed', {
+          projectId,
+          papersCount: createdPapers.length,
+          gapsCount: result.gap_candidates?.length || 0,
+          durationMs: totalDuration
+        });
+      }
     } catch (err) {
       logger.error('Research pipeline failed', { projectId, error: String(err) });
       await prisma.project.update({

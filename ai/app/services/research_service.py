@@ -232,3 +232,72 @@ def run_research(
         gap_candidates=gap_candidates,
         report=report,
     )
+
+
+def stream_research(
+    topic: str,
+    paper_limit: int = 3,
+    project_id: str | None = None,
+    user_id: str | None = None,
+    alpha: float = 0.15,
+    beta: float = 0.65,
+):
+    """
+    Streams LangGraph node execution events in real time as each agent runs.
+    """
+    logger.info(
+        "Streaming research workflow topic=%r paper_limit=%d project_id=%r",
+        topic,
+        paper_limit,
+        project_id,
+    )
+    yield {"stage": "DISCOVERY", "status": "RUNNING"}
+
+    for update in RESEARCH_GRAPH.stream(
+        {
+            "topic": topic.strip(),
+            "paper_limit": paper_limit,
+            "project_id": project_id,
+            "user_id": user_id,
+            "alpha": alpha,
+            "beta": beta,
+        },
+        stream_mode="updates",
+    ):
+        if "discover" in update:
+            papers = update["discover"].get("papers") or []
+            paper_items = [_paper_to_item(p).model_dump() for p in papers]
+            yield {
+                "stage": "DISCOVERY",
+                "status": "COMPLETE",
+                "papers": paper_items,
+            }
+            yield {"stage": "INGESTION", "status": "RUNNING"}
+        elif "ingest" in update:
+            ingestion = update["ingest"].get("ingestion")
+            yield {
+                "stage": "INGESTION",
+                "status": "COMPLETE",
+                "papers_processed": ingestion.papers_processed if ingestion else 0,
+                "total_chunks": ingestion.total_chunks if ingestion else 0,
+            }
+            yield {"stage": "ANALYSIS", "status": "RUNNING"}
+            yield {"stage": "GAPS", "status": "RUNNING"}
+        elif "analyze_and_gaps" in update:
+            gap_candidates = update["analyze_and_gaps"].get("gap_candidates") or []
+            yield {"stage": "ANALYSIS", "status": "COMPLETE"}
+            yield {
+                "stage": "GAPS",
+                "status": "COMPLETE",
+                "gap_candidates": gap_candidates,
+            }
+            yield {"stage": "REPORT", "status": "RUNNING"}
+        elif "report" in update:
+            report_text = update["report"].get("report") or ""
+            yield {
+                "stage": "REPORT",
+                "status": "COMPLETE",
+                "report": report_text,
+            }
+
+    yield {"stage": "COMPLETE", "status": "COMPLETE"}

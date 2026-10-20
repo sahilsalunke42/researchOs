@@ -11,6 +11,15 @@ interface Props {
   projectId: string;
 }
 
+function cleanAbstract(text: string | null | undefined): string {
+  if (!text) return '';
+  return text
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/g, '')
+    .replace(/(?<=\S)\n(?=\S)/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export function PapersView({ projectId }: Props) {
   const [papers, setPapers] = useState<PaperDTO[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -187,8 +196,8 @@ export function PapersView({ projectId }: Props) {
                   {paper.abstractText && (
                     <div>
                       <span className="font-semibold text-text-primary block mb-1">Abstract</span>
-                      <p className="text-text-muted leading-relaxed whitespace-pre-line">
-                        {paper.abstractText}
+                      <p className="text-text-muted leading-relaxed">
+                        {cleanAbstract(paper.abstractText)}
                       </p>
                     </div>
                   )}

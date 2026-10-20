@@ -120,6 +120,11 @@ export const projectsService = {
     userId: string,
     input: { name: string; topic: string; paperLimit: number }
   ): Promise<ProjectDTO> {
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+    if (!user) {
+      throw httpErrors.unauthorized('User not found. Please log in again.', 'SESSION_EXPIRED');
+    }
+
     const project = await prisma.project.create({
       data: {
         userId,

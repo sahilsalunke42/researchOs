@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { api } from '@/lib/api';
 import { Send, Bot, User, BookOpen, Quote, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -29,7 +31,7 @@ export function AskView({ projectId }: Props) {
       id: 'welcome',
       sender: 'assistant',
       content:
-        'Ask questions about the papers indexed in this project. All answers are grounded strictly in the retrieved text passages with verified citations.'
+        'I am your ResearchOS agent. I answer questions strictly concerning the scientific papers discovered and analyzed in this project. Ask about their methodologies, findings, datasets, or conclusions.'
     }
   ]);
   const [input, setInput] = useState<string>('');
@@ -90,9 +92,9 @@ export function AskView({ projectId }: Props) {
       <div className="p-3.5 border-b border-border bg-bg-subtle/50 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Bot className="h-4 w-4 text-accent" />
-          <span className="text-xs font-semibold text-text-primary">Grounded Literature Assistant</span>
+          <span className="text-xs font-semibold text-text-primary">Research Literature Agent</span>
         </div>
-        <span className="text-[11px] text-text-muted">Strict Context Retrieval</span>
+        <span className="text-[11px] text-text-muted">Scoped to Project Papers</span>
       </div>
 
       {/* Message List */}
@@ -118,7 +120,29 @@ export function AskView({ projectId }: Props) {
                     : 'bg-bg-subtle text-text-primary border border-border/70'
                 )}
               >
-                <p className="leading-relaxed whitespace-pre-line">{m.content}</p>
+                {isUser ? (
+                  <p className="leading-relaxed whitespace-pre-line">{m.content}</p>
+                ) : (
+                  <div className="text-xs md:text-sm leading-relaxed text-text-primary">
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        p: ({ children }) => <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>,
+                        ul: ({ children }) => <ul className="list-disc pl-4 mb-2 space-y-1">{children}</ul>,
+                        ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 space-y-1">{children}</ol>,
+                        li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+                        code: ({ children }) => (
+                          <code className="px-1 py-0.5 rounded font-mono text-[11px] bg-bg-surface border border-border">
+                            {children}
+                          </code>
+                        ),
+                        strong: ({ children }) => <strong className="font-semibold text-text-primary">{children}</strong>
+                      }}
+                    >
+                      {m.content}
+                    </ReactMarkdown>
+                  </div>
+                )}
 
                 {/* Evidence Sources */}
                 {m.sources && m.sources.length > 0 && (
@@ -175,7 +199,7 @@ export function AskView({ projectId }: Props) {
         <Input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask a question about the methodology, dataset, or findings..."
+          placeholder="Ask a question about the papers fetched for this project..."
           className="bg-bg-surface text-xs md:text-sm"
           disabled={loading}
         />

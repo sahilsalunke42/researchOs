@@ -45,16 +45,21 @@ export function useResearchJob(projectId: string): UseResearchJobResult {
       if (p.papers) setDiscoveredCount(p.papers.length);
       if (p.gapCandidates) setGapsCount(p.gapCandidates.length);
 
-      if (p.agentRuns && p.agentRuns.length > 0) {
+      if (p.status === 'COMPLETE') {
+        setAgentStages((prev) =>
+          prev.map((s) => ({
+            ...s,
+            status: 'COMPLETE' as AgentStatusDTO,
+            completedAt: s.completedAt || new Date().toISOString()
+          }))
+        );
+      } else if (p.agentRuns && p.agentRuns.length > 0) {
         setAgentStages((prev) =>
           prev.map((stage) => {
-            const match = p.agentRuns?.find((r) => r.agentName === stage.agentName);
+            const matches = p.agentRuns?.filter((r) => r.agentName === stage.agentName) || [];
+            const match = matches[matches.length - 1];
             return match || stage;
           })
-        );
-      } else if (p.status === 'COMPLETE') {
-        setAgentStages((prev) =>
-          prev.map((s) => ({ ...s, status: 'COMPLETE' as AgentStatusDTO }))
         );
       }
     } catch (err) {
@@ -79,6 +84,32 @@ export function useResearchJob(projectId: string): UseResearchJobResult {
         if (!isMounted) return;
         setIsStreaming(true);
       };
+
+      es.addEventListener('project.status', (event: MessageEvent) => {
+        if (!isMounted) return;
+        try {
+          const data = JSON.parse(event.data);
+          if (data.status) {
+            setStatus(data.status);
+            if (data.status === 'COMPLETE') {
+              setAgentStages((prev) =>
+                prev.map((s) => ({ ...s, status: 'COMPLETE' as AgentStatusDTO }))
+              );
+            }
+          }
+          if (data.agentRuns && Array.isArray(data.agentRuns) && data.status !== 'COMPLETE') {
+            setAgentStages((prev) =>
+              prev.map((stage) => {
+                const matches = data.agentRuns.filter((r: AgentRunDTO) => r.agentName === stage.agentName);
+                const match = matches[matches.length - 1];
+                return match ? { ...stage, ...match } : stage;
+              })
+            );
+          }
+        } catch {
+          // Ignore
+        }
+      });
 
       es.addEventListener('stage.updated', (event: MessageEvent) => {
         if (!isMounted) return;
@@ -118,6 +149,11 @@ export function useResearchJob(projectId: string): UseResearchJobResult {
 
       es.addEventListener('report.completed', (_event: MessageEvent) => {
         if (!isMounted) return;
+        refresh();
+      });
+
+      es.addEventListener('run.completed', (_event: MessageEvent) => {
+        if (!isMounted) return;
         setStatus('COMPLETE');
         setAgentStages((prev) =>
           prev.map((s) => ({
@@ -131,7 +167,7 @@ export function useResearchJob(projectId: string): UseResearchJobResult {
         es.close();
       });
 
-      es.addEventListener('job.failed', (event: MessageEvent) => {
+      const handleFailure = (event: MessageEvent) => {
         if (!isMounted) return;
         try {
           const data = JSON.parse(event.data);
@@ -142,7 +178,10 @@ export function useResearchJob(projectId: string): UseResearchJobResult {
         setStatus('ERROR');
         setIsStreaming(false);
         es.close();
-      });
+      };
+
+      es.addEventListener('run.failed', handleFailure);
+      es.addEventListener('job.failed', handleFailure);
 
       es.onerror = () => {
         if (!isMounted) return;

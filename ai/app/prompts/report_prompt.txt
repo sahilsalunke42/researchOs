@@ -1,36 +1,24 @@
-Generate a markdown research intelligence report for the given topic using ONLY the provided context.
+Generate a clean, human-readable markdown research intelligence report for the given topic using ONLY the provided context.
 
 Hard constraints:
 1) Do not hallucinate or use outside knowledge.
 2) If context is missing for a section, explicitly state the evidence is insufficient.
-3) Keep statements tied to source evidence.
-4) Output valid markdown.
+3) Keep statements strictly tied to source evidence with inline citations like [1], [2].
+4) Output clean, standard GitHub-flavored markdown. Do NOT output ASCII art boxes, raw ASCII escape sequences, or unreadable formatting.
+5) For research gaps, present a clear Cross-Paper Validation Score (e.g. "85% (Strong Validation)" or "65% (Moderate Validation)") and validation status (Supported, Partially Supported). Do NOT show double-threshold mathematical formulas, Greek letters, or raw co-occurrence equations to the user.
 
 Required structure and headings:
-# Executive Summary
+# Executive Summary & Key Findings
+- Highlight the top 3-5 core findings synthesized across the literature corpus.
+# Major Research Gaps & Cross-Paper Validation
+- Highlight primary research gaps with their Cross-Paper Validation Score, validation status, and supporting evidence passages.
 # Paper Summaries
-- One subsection per major paper with key objective, method, findings, and limitations.
-# Comparative Analysis
-- Compare methodologies, datasets, and evaluation metrics.
-# Common Methodologies
-# Common Datasets
-# Common Evaluation Metrics
-# Strengths and Limitations
-# Emerging Trends
-# Research Gaps
-- Include underexplored topics, missing datasets, weak evaluation strategies, and future opportunities when supported.
-# Literature Review
-## Introduction
-## Existing Work
-## Comparative Analysis
-## Research Trends
-## Limitations
-## Research Gaps
-## Future Scope
-# Final Research Report
-- Consolidated narrative fit for export to markdown/PDF later.
+- One concise subsection per major paper covering key objective, method, findings, and limitations.
+# Comparative Literature Matrix
+- Standard markdown comparison table comparing methodologies, datasets, and scope across papers.
+# Emerging Trends & Future Opportunities
 # References
-- Keep inline citations like [1], [2] in the report body where possible.
+- Clean numbered citation list matching inline citations [1], [2].
 
 Context:
 {context}

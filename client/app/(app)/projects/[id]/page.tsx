@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api, ApiError } from '@/lib/api';
 import { WorkspaceTabs } from '@/components/workspace/WorkspaceTabs';
+import { useResearchJob } from '@/hooks/useResearchJob';
 import type { ProjectDTO } from '@/types/api.types';
 import { ArrowLeft, BookOpen, Layers } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -11,6 +12,8 @@ import { cn } from '@/lib/utils';
 export default function ProjectWorkspacePage({ params }: { params: { id: string } }) {
   const [project, setProject] = useState<ProjectDTO | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const job = useResearchJob(params.id);
+  const displayStatus = job.status || project?.status || 'QUEUED';
 
   useEffect(() => {
     api.get<{ project: ProjectDTO }>(`/api/projects/${params.id}`)
@@ -54,12 +57,12 @@ export default function ProjectWorkspacePage({ params }: { params: { id: string 
             <span
               className={cn(
                 'text-xs px-2.5 py-0.5 rounded font-mono font-medium',
-                project.status === 'COMPLETE' && 'bg-accent-green/15 text-accent-green',
-                project.status === 'ERROR' && 'bg-accent-red/15 text-accent-red',
-                project.status !== 'COMPLETE' && project.status !== 'ERROR' && 'bg-accent/15 text-accent'
+                displayStatus === 'COMPLETE' && 'bg-accent-green/15 text-accent-green',
+                displayStatus === 'ERROR' && 'bg-accent-red/15 text-accent-red',
+                displayStatus !== 'COMPLETE' && displayStatus !== 'ERROR' && 'bg-accent/15 text-accent'
               )}
             >
-              {project.status}
+              {displayStatus}
             </span>
           </div>
           <p className="text-xs text-text-muted max-w-2xl leading-relaxed">

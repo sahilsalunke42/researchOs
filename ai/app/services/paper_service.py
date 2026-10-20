@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import html
 import logging
 import re
 import time
@@ -22,6 +23,43 @@ SEMANTIC_SCHOLAR_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
 SEMANTIC_SCHOLAR_FIELDS_PRIMARY = "paperId,title,authors,year,abstract,url,doi,externalIds"
 SEMANTIC_SCHOLAR_FIELDS_FALLBACK = "paperId,title,authors,year,abstract,url,doi"
 logger = logging.getLogger(__name__)
+
+
+def clean_human_readable_text(text: str | None) -> str:
+    """
+    Cleans raw paper text, abstracts, and summaries to ensure they are human-readable
+    and free of ASCII/LaTeX artifacts, hard line-breaks, unescaped HTML, or control chars.
+    """
+    if not text:
+        return ""
+
+    # Unescape HTML entities (&amp;, &lt;, &gt;, &#39;, &quot;)
+    cleaned = html.unescape(text)
+
+    # Convert common LaTeX math/formatting artifacts into readable characters
+    cleaned = re.sub(r"\\(?:cite|citep|citet)\{[^}]*\}", "", cleaned)
+    cleaned = re.sub(r"\\(?:textbf|textit|emph|mathrm|mathbf)\{([^}]*)\}", r"\1", cleaned)
+    cleaned = re.sub(r"\\(?:alpha|beta|gamma|delta|epsilon|theta|lambda|mu|sigma|omega)", lambda m: m.group(0)[1:], cleaned)
+    cleaned = cleaned.replace(r"\&", "&").replace(r"\%", "%").replace(r"\$", "$").replace(r"\_", "_")
+    cleaned = cleaned.replace(r"~", " ")
+
+    # Normalize TeX style quotes ``word'' or `word' to standard quotes
+    cleaned = re.sub(r"``|''", '"', cleaned)
+    cleaned = re.sub(r"`|'", "'", cleaned)
+
+    # Remove non-printable / control characters (except standard newlines/tabs)
+    cleaned = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]", " ", cleaned)
+
+    # Unwrap single hard line-breaks inside sentences, while keeping true paragraphs
+    paragraphs = re.split(r"\n\s*\n", cleaned)
+    normalized_paragraphs: list[str] = []
+    for para in paragraphs:
+        para_unwrapped = re.sub(r"(?<=\S)\n(?=\S)", " ", para)
+        para_clean = re.sub(r"\s+", " ", para_unwrapped).strip()
+        if para_clean:
+            normalized_paragraphs.append(para_clean)
+
+    return "\n\n".join(normalized_paragraphs)
 
 
 @dataclass(frozen=True)
@@ -54,12 +92,16 @@ def _normalize_authors(authors: list[Any]) -> tuple[str, ...]:
 
 
 def normalize_paper(data: dict[str, Any], source: str) -> Paper:
-    title = str(data.get("title", "")).strip()
+    raw_title = str(data.get("title", "")).strip()
+    title = clean_human_readable_text(raw_title)
+    title = re.sub(r"\s+", " ", title).strip() or raw_title
     authors = data.get("authors") or []
     doi = data.get("doi")
     year = data.get("year")
     url = data.get("url") or data.get("entry_id")
-    abstract = data.get("abstract") or data.get("summary")
+    raw_abstract = data.get("abstract") or data.get("summary")
+    cleaned_abstract = clean_human_readable_text(raw_abstract) if raw_abstract else None
+    abstract = cleaned_abstract if cleaned_abstract else None
     external_id = data.get("external_id")
     return Paper(
         title=title,
@@ -68,7 +110,7 @@ def normalize_paper(data: dict[str, Any], source: str) -> Paper:
         doi=str(doi).strip() if doi else None,
         source=source,
         url=str(url).strip() if url else None,
-        abstract=str(abstract).strip() if abstract else None,
+        abstract=abstract,
         external_id=str(external_id).strip() if external_id else None,
         relevance_score=None,
     )

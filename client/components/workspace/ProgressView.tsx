@@ -18,7 +18,7 @@ const STAGE_DESCRIPTIONS: Record<string, string> = {
   DISCOVERY: 'Querying Semantic Scholar and arXiv academic APIs for candidate literature',
   INGESTION: 'Extracting PDF text chunks, computing embeddings, and indexing into isolated Qdrant vector store',
   ANALYSIS: 'Extracting research problems, methodologies, datasets, findings, and limitations',
-  GAPS: 'Computing keyword co-occurrence matrix (Curiac et al., 2022) and cross-validating candidate gaps',
+  GAPS: 'Detecting underexplored literature intersections and cross-validating research gaps across papers',
   REPORT: 'Synthesizing evidence-backed academic research report with verified inline citations'
 };
 
