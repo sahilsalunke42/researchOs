@@ -198,6 +198,19 @@ export function useResearchJob(projectId: string): UseResearchJobResult {
     };
   }, [projectId, refresh]);
 
+  // Bounded status polling while in active states for rock-solid real-time state sync
+  useEffect(() => {
+    if (!projectId) return;
+    const isTerminal = status === 'COMPLETE' || status === 'ERROR';
+    if (isTerminal) return;
+
+    const interval = setInterval(() => {
+      refresh();
+    }, 2500);
+
+    return () => clearInterval(interval);
+  }, [projectId, status, refresh]);
+
   return {
     status,
     agentStages,

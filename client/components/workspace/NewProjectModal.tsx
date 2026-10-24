@@ -19,7 +19,7 @@ interface Props {
 export function NewProjectModal({ open, onOpenChange, onCreated }: Props) {
   const [name, setName] = useState('');
   const [topic, setTopic] = useState('');
-  const [paperLimit, setPaperLimit] = useState<5 | 10 | 20>(20);
+  const [paperLimit, setPaperLimit] = useState<1 | 5 | 10 | 15 | 20>(5);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -63,11 +63,13 @@ export function NewProjectModal({ open, onOpenChange, onCreated }: Props) {
           </div>
           <div className="space-y-2">
             <Label htmlFor="paper-limit">Paper limit</Label>
-            <Select value={String(paperLimit)} onValueChange={(v) => setPaperLimit(Number(v) as 5 | 10 | 20)}>
+            <Select value={String(paperLimit)} onValueChange={(v) => setPaperLimit(Number(v) as 1 | 5 | 10 | 15 | 20)}>
               <SelectTrigger id="paper-limit"><SelectValue /></SelectTrigger>
               <SelectContent>
+                <SelectItem value="1">1</SelectItem>
                 <SelectItem value="5">5</SelectItem>
                 <SelectItem value="10">10</SelectItem>
+                <SelectItem value="15">15</SelectItem>
                 <SelectItem value="20">20</SelectItem>
               </SelectContent>
             </Select>

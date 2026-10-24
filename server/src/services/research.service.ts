@@ -89,8 +89,12 @@ export const researchService = {
   ): Promise<void> {
     const startTime = Date.now();
     try {
-      // 1. Stage: Discovery
+      // 1. Stage: Discovery - Clear any stale results from previous runs of this project
       this.emitEvent(projectId, 'stage.updated', { stage: 'DISCOVERY', status: 'RUNNING' });
+      await prisma.report.deleteMany({ where: { projectId } });
+      await prisma.gapCandidate.deleteMany({ where: { projectId } });
+      await prisma.paperComparison.deleteMany({ where: { projectId } });
+      await prisma.paper.deleteMany({ where: { projectId } });
       await prisma.agentRun.deleteMany({ where: { projectId } });
       await prisma.agentRun.create({
         data: {
@@ -162,7 +166,8 @@ export const researchService = {
         supports: 'SUPPORTS',
         contradicts: 'CONTRADICTS',
         partially_supports: 'PARTIALLY_SUPPORTS',
-        addresses_already: 'ADDRESSES_ALREADY'
+        addresses_already: 'ADDRESSES_ALREADY',
+        irrelevant: 'UNCLEAR'
       };
 
       if (isStreamMode && aiResponse.body) {
@@ -185,7 +190,12 @@ export const researchService = {
             const papers = event.papers || [];
             papersCount = papers.length;
             for (const p of papers) {
-              const sourceEnum = p.source?.toLowerCase().includes('arxiv') ? 'ARXIV' : 'SEMANTIC_SCHOLAR';
+              const sourceLower = p.source?.toLowerCase() || '';
+              const sourceEnum = sourceLower.includes('arxiv')
+                ? 'ARXIV'
+                : sourceLower.includes('openalex')
+                ? 'OPENALEX'
+                : 'SEMANTIC_SCHOLAR';
               const paper = await prisma.paper.create({
                 data: {
                   projectId,
@@ -353,7 +363,12 @@ export const researchService = {
         this.emitEvent(projectId, 'stage.updated', { stage: 'INGESTION', status: 'RUNNING' });
         const createdPapers = [];
         for (const p of result.papers || []) {
-          const sourceEnum = p.source?.toLowerCase().includes('arxiv') ? 'ARXIV' : 'SEMANTIC_SCHOLAR';
+          const sourceLower = p.source?.toLowerCase() || '';
+          const sourceEnum = sourceLower.includes('arxiv')
+            ? 'ARXIV'
+            : sourceLower.includes('openalex')
+            ? 'OPENALEX'
+            : 'SEMANTIC_SCHOLAR';
           const paper = await prisma.paper.create({
             data: {
               projectId,

@@ -4,13 +4,14 @@ import logging
 import os
 import requests
 
-from app.config.settings import OLLAMA_MODEL
+from app.config.settings import (
+    OLLAMA_MODEL,
+    OPENAI_API_BASE,
+    OPENAI_API_KEY,
+    OPENAI_MODEL,
+)
 
 logger = logging.getLogger(__name__)
-
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
 
 def _require_model() -> str:

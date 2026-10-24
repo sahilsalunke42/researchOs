@@ -11,20 +11,42 @@ interface Props {
 }
 
 function getValidationMetrics(gap: GapCandidateDTO) {
+  const supportingPassages = (gap.evidence || []).filter(
+    (e) => e.relation === 'SUPPORTS' || e.relation === 'PARTIALLY_SUPPORTS'
+  );
+  const contradictingPassages = (gap.evidence || []).filter(
+    (e) => e.relation === 'CONTRADICTS' || e.relation === 'ADDRESSES_ALREADY'
+  );
+
+  const supportingCount = supportingPassages.length;
+  const contradictingCount = contradictingPassages.length;
+
   if (gap.validationStatus === 'SUPPORTED') {
-    const score = Math.round(Math.min(Math.max((gap.coOccurrenceScore || 0.6) * 100, 82), 98));
-    return { score, label: 'Strong Cross-Paper Validation', badgeClass: 'text-accent-green bg-accent-green/15 border-accent-green/20' };
+    return {
+      label: 'Corroborated by 2+ Sources',
+      detail: `${supportingCount} Supporting Passage${supportingCount === 1 ? '' : 's'}`,
+      badgeClass: 'text-accent-green bg-accent-green/15 border-accent-green/20'
+    };
   }
   if (gap.validationStatus === 'PARTIALLY_SUPPORTED') {
-    const score = Math.round(Math.min(Math.max((gap.coOccurrenceScore || 0.45) * 100, 62), 80));
-    return { score, label: 'Moderate Cross-Paper Validation', badgeClass: 'text-accent-amber bg-accent-amber/15 border-accent-amber/20' };
+    return {
+      label: 'Preliminary Single-Source Evidence',
+      detail: `${supportingCount} Supporting Passage${supportingCount === 1 ? '' : 's'}`,
+      badgeClass: 'text-accent-amber bg-accent-amber/15 border-accent-amber/20'
+    };
   }
-  if (gap.validationStatus === 'INCONCLUSIVE') {
-    const score = Math.round(Math.min(Math.max((gap.coOccurrenceScore || 0.3) * 100, 40), 59));
-    return { score, label: 'Preliminary Evidence', badgeClass: 'text-text-muted bg-bg-subtle border-border' };
+  if (gap.validationStatus === 'UNSUPPORTED') {
+    return {
+      label: 'Addressed or Contradicted in Literature',
+      detail: `${contradictingCount} Contradicting Passage${contradictingCount === 1 ? '' : 's'}`,
+      badgeClass: 'text-accent-red bg-accent-red/15 border-accent-red/20'
+    };
   }
-  const score = Math.round(Math.min(Math.max((gap.coOccurrenceScore || 0.15) * 100, 15), 39));
-  return { score, label: 'Low Validation / Contradicted', badgeClass: 'text-accent-red bg-accent-red/15 border-accent-red/20' };
+  return {
+    label: 'Inconclusive / Background Only',
+    detail: 'No Open Limitation Found',
+    badgeClass: 'text-text-muted bg-bg-subtle border-border'
+  };
 }
 
 export function GapsView({ projectId }: Props) {
@@ -156,8 +178,8 @@ export function GapsView({ projectId }: Props) {
                       {status.replace('_', ' ').toLowerCase()}
                     </span>
 
-                    <span className={cn('text-xs px-2.5 py-0.5 rounded font-mono font-medium border inline-flex items-center', valMetrics.badgeClass)}>
-                      {valMetrics.score}% Validation
+                    <span className={cn('text-xs px-2.5 py-0.5 rounded font-medium border inline-flex items-center gap-1', valMetrics.badgeClass)}>
+                      {valMetrics.detail}
                     </span>
                   </div>
 

@@ -40,7 +40,28 @@ STOP_WORDS = {
     "user", "users", "framework", "frameworks", "medical", "clinical", "propose", "proposes",
     "proposing", "introduce", "introduces", "introducing", "explore", "explores", "exploring",
     "present", "presents", "presenting", "need", "needs", "needed", "needing", "mechanism", "mechanisms",
-    "order", "state", "states", "well", "good", "better", "best"
+    "order", "state", "states", "well", "good", "better", "best",
+    # Vague action participles and generic research descriptors to exclude from unigrams
+    "detecting", "scanning", "prediction", "predicting", "predicts", "classification",
+    "classifying", "classifies", "segmentation", "segmenting", "processing", "investigating",
+    "finding", "findings", "extraction", "evaluating", "monitoring", "identification",
+    "identifying", "modality", "modalities", "imaging", "diseases", "disease"
+}
+
+# High-level generic discipline phrases that should not be paired together as specific gaps
+GENERIC_BROAD_TOPICS = {
+    "artificial intelligence",
+    "machine learning",
+    "deep learning",
+    "neural network",
+    "neural networks",
+    "retinal diseases",
+    "computer vision",
+    "medical imaging",
+    "data analysis",
+    "image analysis",
+    "clinical practice",
+    "diagnostic performance",
 }
 
 
@@ -54,6 +75,8 @@ class GapCandidate:
     statement: str
     supporting_papers: tuple[str, ...] = field(default_factory=tuple)
     validation_status: str = "CANDIDATE"
+    corpus_size: int = 0
+    method: str = "double_threshold_curiac"
 
 
 @dataclass(frozen=True)
@@ -169,10 +192,18 @@ def generate_double_threshold_gaps(
                 continue
             seen_pairs.add(pair)
 
+            # Skip pairs where both topics are overly broad/generic disciplines
+            if k1 in GENERIC_BROAD_TOPICS and k2 in GENERIC_BROAD_TOPICS:
+                continue
+
             # Skip pairs that share tokens (e.g. 'transformer' and 'transformer architecture')
             words_1 = set(k1.split())
             words_2 = set(k2.split())
             if words_1.intersection(words_2):
+                continue
+
+            # Skip trivial single-character or short fragments
+            if len(k1) < 4 or len(k2) < 4:
                 continue
 
             if alpha <= score <= beta:
@@ -181,9 +212,9 @@ def generate_double_threshold_gaps(
                     papers[idx].title for idx in paper_indices[k1].union(paper_indices[k2])
                 ]
                 statement = (
-                    f"Underexplored intersection between '{k1.title()}' and '{k2.title()}': "
-                    f"While the literature investigates both areas, there is a lack of unified empirical benchmarks "
-                    f"and standardized methodologies bridging them."
+                    f"Candidate Topic Intersection: '{k1.title()}' ↔ '{k2.title()}' "
+                    f"(Co-occurrence score = {score:.3f}, Alpha = {alpha}, Beta = {beta}, Corpus: {len(papers)} papers). "
+                    f"Identified via double-threshold co-occurrence; requires cross-paper evidence validation to substantiate an open gap."
                 )
                 candidates.append(
                     GapCandidate(
@@ -195,14 +226,31 @@ def generate_double_threshold_gaps(
                         statement=statement,
                         supporting_papers=tuple(common_papers[:5]),
                         validation_status="CANDIDATE",
+                        corpus_size=len(papers),
+                        method="double_threshold_curiac",
                     )
                 )
 
     # Sort candidates by relevance score (closer to middle of range or highest novelty)
     candidates.sort(key=lambda c: c.co_occurrence_score, reverse=True)
 
+    # Deduplicate semantically overlapping candidate topic pairs
+    deduped_candidates: list[GapCandidate] = []
+    seen_concept_sets: list[set[str]] = []
+
+    for cand in candidates:
+        cand_tokens = set(cand.topic_a.split()).union(set(cand.topic_b.split()))
+        is_duplicate = False
+        for existing_tokens in seen_concept_sets:
+            if cand_tokens.issubset(existing_tokens) or (len(cand_tokens) > 2 and len(existing_tokens) > 2 and len(cand_tokens.intersection(existing_tokens)) >= 2):
+                is_duplicate = True
+                break
+        if not is_duplicate:
+            deduped_candidates.append(cand)
+            seen_concept_sets.append(cand_tokens)
+
     return DoubleThresholdResult(
-        candidates=candidates[:max_candidates],
+        candidates=deduped_candidates[:max_candidates],
         co_occurrence_matrix=matrix,
         vocabulary=vocab,
         corpus_size=len(papers),

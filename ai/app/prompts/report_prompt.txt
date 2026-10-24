@@ -5,13 +5,14 @@ Hard constraints:
 2) If context is missing for a section, explicitly state the evidence is insufficient.
 3) Keep statements strictly tied to source evidence with inline citations like [1], [2].
 4) Output clean, standard GitHub-flavored markdown. Do NOT output ASCII art boxes, raw ASCII escape sequences, or unreadable formatting.
-5) For research gaps, present a clear Cross-Paper Validation Score (e.g. "85% (Strong Validation)" or "65% (Moderate Validation)") and validation status (Supported, Partially Supported). Do NOT show double-threshold mathematical formulas, Greek letters, or raw co-occurrence equations to the user.
+5) For research gaps, present the empirical validation status (SUPPORTED, PARTIALLY SUPPORTED, or CONTRADICTED/ALREADY ADDRESSED) and the count of distinct supporting papers. Do NOT fabricate arbitrary percentage scores (such as 82%, 62%, or 50%) or self-reported confidence percentages. If no candidate has corroborated evidence of an unresolved limitation, state "No sufficiently supported gap identified in the current corpus".
+6) Do not display double-threshold mathematical formulas, Greek letters, or raw co-occurrence equations to the user.
 
 Required structure and headings:
 # Executive Summary & Key Findings
 - Highlight the top 3-5 core findings synthesized across the literature corpus.
 # Major Research Gaps & Cross-Paper Validation
-- Highlight primary research gaps with their Cross-Paper Validation Score, validation status, and supporting evidence passages.
+- Highlight primary research gaps with their validation status, distinct corroborating sources count, and supporting evidence passages.
 # Paper Summaries
 - One concise subsection per major paper covering key objective, method, findings, and limitations.
 # Comparative Literature Matrix

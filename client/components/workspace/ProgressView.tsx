@@ -12,6 +12,7 @@ interface Props {
   gapsCount: number;
   isStreaming: boolean;
   error: string | null;
+  onRetry?: () => void;
 }
 
 const STAGE_DESCRIPTIONS: Record<string, string> = {
@@ -28,7 +29,8 @@ export function ProgressView({
   discoveredCount,
   gapsCount,
   isStreaming,
-  error
+  error,
+  onRetry
 }: Props) {
   const isComplete = status === 'COMPLETE';
   const isFailed = status === 'ERROR';
@@ -84,14 +86,24 @@ export function ProgressView({
         </div>
       </div>
 
-      {/* Error Alert if failed */}
-      {error && (
-        <div className="flex items-start gap-3 p-4 rounded-lg border border-accent-red/30 bg-accent-red/10 text-accent-red">
-          <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5" />
-          <div>
-            <div className="text-sm font-semibold">Workflow Error</div>
-            <p className="text-xs mt-1">{error}</p>
+      {/* Error Alert if failed with Retry button */}
+      {(error || isFailed) && (
+        <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-lg border border-accent-red/30 bg-accent-red/10 text-accent-red">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5" />
+            <div>
+              <div className="text-sm font-semibold">Workflow Error</div>
+              <p className="text-xs mt-1">{error || 'The research pipeline stopped due to an error.'}</p>
+            </div>
           </div>
+          {onRetry && (
+            <button
+              onClick={onRetry}
+              className="px-3 py-1.5 rounded text-xs font-semibold bg-accent-red text-white hover:bg-accent-red/90 transition-colors"
+            >
+              Retry Research
+            </button>
+          )}
         </div>
       )}
 

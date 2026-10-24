@@ -8,11 +8,18 @@ from app.schemas.papers import PaperItem
 
 class ResearchRequest(BaseModel):
     topic: str = Field(..., min_length=1, max_length=500)
-    paper_limit: int = Field(default=3, ge=1, le=20)
+    paper_limit: int = Field(default=5)
     project_id: str | None = Field(default=None)
     user_id: str | None = Field(default=None)
     alpha: float = Field(default=0.15, ge=0.0, le=1.0)
     beta: float = Field(default=0.65, ge=0.0, le=1.0)
+
+    @field_validator("paper_limit")
+    @classmethod
+    def validate_paper_limit(cls, value: int) -> int:
+        if value not in {1, 5, 10, 15, 20}:
+            raise ValueError("paper_limit must be one of: 1, 5, 10, 15, 20")
+        return value
 
     @field_validator("topic")
     @classmethod

@@ -13,7 +13,7 @@ describe('NewProjectModal', () => {
     await userEvent.type(screen.getByLabelText(/project name/i), 'X');
     await userEvent.type(screen.getByLabelText(/research topic/i), 'Y');
     await userEvent.click(screen.getByRole('button', { name: /start research/i }));
-    expect(post).toHaveBeenCalledWith('/api/projects', { name: 'X', topic: 'Y', paperLimit: 20 });
+    expect(post).toHaveBeenCalledWith('/api/projects', { name: 'X', topic: 'Y', paperLimit: 5 });
     expect(onCreated).toHaveBeenCalledWith(project);
   });
 });

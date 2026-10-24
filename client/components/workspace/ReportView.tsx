@@ -14,20 +14,42 @@ interface Props {
 }
 
 function getValidationMetrics(gap: GapCandidateDTO) {
+  const supportingPassages = (gap.evidence || []).filter(
+    (e) => e.relation === 'SUPPORTS' || e.relation === 'PARTIALLY_SUPPORTS'
+  );
+  const contradictingPassages = (gap.evidence || []).filter(
+    (e) => e.relation === 'CONTRADICTS' || e.relation === 'ADDRESSES_ALREADY'
+  );
+
+  const supportingCount = supportingPassages.length;
+  const contradictingCount = contradictingPassages.length;
+
   if (gap.validationStatus === 'SUPPORTED') {
-    const score = Math.round(Math.min(Math.max((gap.coOccurrenceScore || 0.6) * 100, 82), 98));
-    return { score, label: 'High Confidence', badgeClass: 'text-accent-green bg-accent-green/15 border-accent-green/20' };
+    return {
+      label: 'Corroborated by 2+ Sources',
+      detail: `${supportingCount} Supporting Passage${supportingCount === 1 ? '' : 's'}`,
+      badgeClass: 'text-accent-green bg-accent-green/15 border-accent-green/20'
+    };
   }
   if (gap.validationStatus === 'PARTIALLY_SUPPORTED') {
-    const score = Math.round(Math.min(Math.max((gap.coOccurrenceScore || 0.45) * 100, 62), 80));
-    return { score, label: 'Moderate Validation', badgeClass: 'text-accent-amber bg-accent-amber/15 border-accent-amber/20' };
+    return {
+      label: 'Preliminary Single-Source Evidence',
+      detail: `${supportingCount} Supporting Passage${supportingCount === 1 ? '' : 's'}`,
+      badgeClass: 'text-accent-amber bg-accent-amber/15 border-accent-amber/20'
+    };
   }
-  if (gap.validationStatus === 'INCONCLUSIVE') {
-    const score = Math.round(Math.min(Math.max((gap.coOccurrenceScore || 0.3) * 100, 40), 59));
-    return { score, label: 'Preliminary', badgeClass: 'text-text-muted bg-bg-subtle border-border' };
+  if (gap.validationStatus === 'UNSUPPORTED') {
+    return {
+      label: 'Addressed or Contradicted in Literature',
+      detail: `${contradictingCount} Contradicting Passage${contradictingCount === 1 ? '' : 's'}`,
+      badgeClass: 'text-accent-red bg-accent-red/15 border-accent-red/20'
+    };
   }
-  const score = Math.round(Math.min(Math.max((gap.coOccurrenceScore || 0.15) * 100, 15), 39));
-  return { score, label: 'Low Validation', badgeClass: 'text-accent-red bg-accent-red/15 border-accent-red/20' };
+  return {
+    label: 'Inconclusive / Background Only',
+    detail: 'No Open Limitation Found',
+    badgeClass: 'text-text-muted bg-bg-subtle border-border'
+  };
 }
 
 export function ReportView({ projectId }: Props) {
@@ -192,11 +214,13 @@ export function ReportView({ projectId }: Props) {
 
         <div className="p-4 rounded-lg border border-border bg-bg-surface space-y-1">
           <div className="flex items-center justify-between text-text-muted">
-            <span className="text-xs uppercase tracking-wider font-medium">Evidence Grounding</span>
+            <span className="text-xs uppercase tracking-wider font-medium">Text Coverage</span>
             <CheckCircle2 className="h-4 w-4 text-accent-green" />
           </div>
-          <div className="text-2xl font-bold text-accent-green">100%</div>
-          <p className="text-[11px] text-text-muted">Strict source citations verified</p>
+          <div className="text-2xl font-bold text-accent-green">
+            {papers.filter((p) => p.abstractText || p.pdfUrl).length}/{papers.length}
+          </div>
+          <p className="text-[11px] text-text-muted">Sources with text indexed</p>
         </div>
       </div>
 
@@ -231,7 +255,7 @@ export function ReportView({ projectId }: Props) {
                       {gap.topicA} <span className="text-text-muted">↔</span> {gap.topicB}
                     </span>
                     <span className={cn('text-[11px] px-2 py-0.5 rounded font-mono font-medium border', metrics.badgeClass)}>
-                      Validation: {metrics.score}%
+                      {metrics.detail}
                     </span>
                   </div>
 

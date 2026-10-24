@@ -108,7 +108,7 @@ class ResearchGraphState(TypedDict, total=False):
 
 def _discover_papers_node(state: ResearchGraphState) -> ResearchGraphState:
     topic = str(state["topic"]).strip()
-    limit = int(state.get("paper_limit", 3))
+    limit = int(state.get("paper_limit", 5))
     logger.info("LangGraph node=discover topic=%r limit=%d", topic, limit)
     papers = fetch_papers(topic, limit=limit)
     return {"papers": papers}
@@ -135,6 +135,23 @@ def _analyze_and_gaps_node(state: ResearchGraphState) -> ResearchGraphState:
         try:
             gap_res = generate_double_threshold_gaps(papers, alpha=alpha, beta=beta)
             validated_gaps = [validate_candidate_gap(cand, papers) for cand in gap_res.candidates]
+
+            # Prioritize supported and partially supported gaps over unsupported/inconclusive
+            def _gap_sort_key(g: Any) -> tuple[int, int, float]:
+                status_order = {
+                    "supported": 0,
+                    "partially_supported": 1,
+                    "unsupported": 2,
+                    "inconclusive": 3,
+                }
+                return (
+                    status_order.get(g.validation_status.lower(), 4),
+                    -getattr(g, "supporting_paper_count", 0),
+                    -getattr(g, "co_occurrence_score", 0.0),
+                )
+
+            validated_gaps.sort(key=_gap_sort_key)
+
             gap_data = [
                 {
                     "topic_a": g.topic_a,
@@ -143,6 +160,10 @@ def _analyze_and_gaps_node(state: ResearchGraphState) -> ResearchGraphState:
                     "co_occurrence_score": g.co_occurrence_score,
                     "validation_status": g.validation_status,
                     "confidence_rationale": g.confidence_rationale,
+                    "supporting_paper_count": g.supporting_paper_count,
+                    "contradicting_paper_count": g.contradicting_paper_count,
+                    "total_corpus_papers": g.total_corpus_papers,
+                    "corpus_limitations": g.corpus_limitations,
                     "evidence_items": [
                         {
                             "paper_title": e.paper_title,
@@ -164,9 +185,11 @@ def _analyze_and_gaps_node(state: ResearchGraphState) -> ResearchGraphState:
 def _generate_report_node(state: ResearchGraphState) -> ResearchGraphState:
     topic = str(state["topic"]).strip()
     papers = state.get("papers") or []
+    gap_candidates = state.get("gap_candidates") or []
     project_id = state.get("project_id")
-    logger.info("LangGraph node=report topic=%r project_id=%r", topic, project_id)
-    report_text = generate_report(topic, papers=papers, project_id=project_id)
+    limit = int(state.get("paper_limit", 5))
+    logger.info("LangGraph node=report topic=%r project_id=%r gaps=%d limit=%d", topic, project_id, len(gap_candidates), limit)
+    report_text = generate_report(topic, limit=limit, papers=papers, project_id=project_id, gaps=gap_candidates)
     return {"report": report_text}
 
 
@@ -190,7 +213,7 @@ RESEARCH_GRAPH = _build_research_graph()
 
 def run_research(
     topic: str,
-    paper_limit: int = 3,
+    paper_limit: int = 5,
     project_id: str | None = None,
     user_id: str | None = None,
     alpha: float = 0.15,
@@ -236,7 +259,7 @@ def run_research(
 
 def stream_research(
     topic: str,
-    paper_limit: int = 3,
+    paper_limit: int = 5,
     project_id: str | None = None,
     user_id: str | None = None,
     alpha: float = 0.15,

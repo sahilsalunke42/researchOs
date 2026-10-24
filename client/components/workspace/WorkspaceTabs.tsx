@@ -2,13 +2,13 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
+import { api } from '@/lib/api';
 import { useResearchJob } from '@/hooks/useResearchJob';
 import { ProgressView } from './ProgressView';
 import { PapersView } from './PapersView';
 import { GapsView } from './GapsView';
 import { ReportView } from './ReportView';
-import { AskView } from './AskView';
-import { Activity, FileText, Sparkles, BookOpen, MessageSquare, CheckCircle2, ArrowRight } from 'lucide-react';
+import { Activity, FileText, Sparkles, BookOpen, CheckCircle2, ArrowRight } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -19,7 +19,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 
-export type WorkspaceTab = 'progress' | 'papers' | 'gaps' | 'report' | 'ask';
+export type WorkspaceTab = 'progress' | 'papers' | 'gaps' | 'report';
 
 interface TabItem {
   id: WorkspaceTab;
@@ -67,8 +67,7 @@ export function WorkspaceTabs({ projectId }: { projectId: string }) {
     { id: 'progress', label: 'Pipeline', icon: Activity },
     { id: 'papers', label: 'Papers', icon: FileText, count: job.discoveredCount },
     { id: 'gaps', label: 'Research Gaps', icon: Sparkles, count: job.gapsCount },
-    { id: 'report', label: 'Report', icon: BookOpen },
-    { id: 'ask', label: 'Ask Assistant', icon: MessageSquare }
+    { id: 'report', label: 'Report', icon: BookOpen }
   ];
 
   return (
@@ -119,12 +118,19 @@ export function WorkspaceTabs({ projectId }: { projectId: string }) {
             gapsCount={job.gapsCount}
             isStreaming={job.isStreaming}
             error={job.error}
+            onRetry={async () => {
+              try {
+                await api.post(`/api/projects/${projectId}/run`);
+                job.refresh();
+              } catch (err) {
+                console.error('Failed to trigger retry:', err);
+              }
+            }}
           />
         )}
         {tab === 'papers' && <PapersView projectId={projectId} />}
         {tab === 'gaps' && <GapsView projectId={projectId} />}
         {tab === 'report' && <ReportView projectId={projectId} />}
-        {tab === 'ask' && <AskView projectId={projectId} />}
       </div>
 
       {/* Pipeline Completion Pop Up Modal */}

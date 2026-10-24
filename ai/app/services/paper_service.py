@@ -20,7 +20,7 @@ from app.config.settings import (
 from app.rag.embeddings import generate_embeddings, generate_embeddings_batch
 
 SEMANTIC_SCHOLAR_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
-SEMANTIC_SCHOLAR_FIELDS_PRIMARY = "paperId,title,authors,year,abstract,url,doi,externalIds"
+SEMANTIC_SCHOLAR_FIELDS_PRIMARY = "paperId,title,authors,year,abstract,url,doi,externalIds,openAccessPdf"
 SEMANTIC_SCHOLAR_FIELDS_FALLBACK = "paperId,title,authors,year,abstract,url,doi"
 logger = logging.getLogger(__name__)
 
@@ -73,6 +73,7 @@ class Paper:
     abstract: str | None = None
     external_id: str | None = None
     relevance_score: float | None = None
+    pdf_url: str | None = None
 
 
 def _normalize_text(value: str) -> str:
@@ -103,6 +104,7 @@ def normalize_paper(data: dict[str, Any], source: str) -> Paper:
     cleaned_abstract = clean_human_readable_text(raw_abstract) if raw_abstract else None
     abstract = cleaned_abstract if cleaned_abstract else None
     external_id = data.get("external_id")
+    pdf_url = data.get("pdf_url")
     return Paper(
         title=title,
         authors=_normalize_authors(list(authors)),
@@ -113,6 +115,7 @@ def normalize_paper(data: dict[str, Any], source: str) -> Paper:
         abstract=abstract,
         external_id=str(external_id).strip() if external_id else None,
         relevance_score=None,
+        pdf_url=str(pdf_url).strip() if pdf_url else None,
     )
 
 
@@ -135,14 +138,82 @@ def dedupe_papers(papers: list[Paper]) -> list[Paper]:
     return unique
 
 
+def reconstruct_abstract(inverted_index: dict[str, list[int]] | None) -> str | None:
+    if not inverted_index:
+        return None
+    words: list[tuple[int, str]] = []
+    for word, positions in inverted_index.items():
+        for pos in positions:
+            words.append((pos, word))
+    words.sort(key=lambda x: x[0])
+    return " ".join(w for _, w in words)
+
+
+def fetch_openalex(query: str, limit: int = 5, timeout: int = 12) -> list[Paper]:
+    """
+    Fetches peer-reviewed academic literature from the OpenAlex API.
+    Provides fast, free, open-access academic literature discovery without strict rate-limiting.
+    """
+    url = "https://api.openalex.org/works"
+    params = {"search": query, "per-page": limit}
+    headers = {"User-Agent": "ResearchOS/1.0 (mailto:support@researchos.local)"}
+    try:
+        resp = requests.get(url, params=params, headers=headers, timeout=timeout)
+        if resp.status_code != 200:
+            logger.warning("OpenAlex returned HTTP %d", resp.status_code)
+            return []
+        data = resp.json().get("results", [])
+        papers: list[Paper] = []
+        for item in data:
+            title = item.get("display_name") or item.get("title") or ""
+            authors = [
+                a.get("author", {}).get("display_name")
+                for a in item.get("authorships", [])
+                if a.get("author", {}).get("display_name")
+            ]
+            doi = item.get("doi")
+            if doi and doi.startswith("https://doi.org/"):
+                doi = doi[len("https://doi.org/"):]
+            abstract = reconstruct_abstract(item.get("abstract_inverted_index"))
+            primary_loc = item.get("primary_location") or {}
+            best_oa_loc = item.get("best_oa_location") or {}
+            open_access = item.get("open_access") or {}
+
+            # Direct PDF retrieval if available
+            pdf_url = best_oa_loc.get("pdf_url") or primary_loc.get("pdf_url")
+            oa_url = open_access.get("oa_url")
+            if not pdf_url and oa_url and str(oa_url).lower().endswith(".pdf"):
+                pdf_url = oa_url
+
+            url_val = item.get("doi") or primary_loc.get("landing_page_url") or item.get("id")
+            papers.append(
+                normalize_paper(
+                    {
+                        "title": title,
+                        "authors": authors,
+                        "year": item.get("publication_year"),
+                        "doi": doi,
+                        "url": url_val,
+                        "abstract": abstract,
+                        "external_id": item.get("id"),
+                        "pdf_url": pdf_url,
+                    },
+                    source="openalex",
+                )
+            )
+        return papers
+    except Exception as exc:
+        logger.warning("OpenAlex search failed: %s", exc)
+        return []
+
+
 def fetch_semantic_scholar(query: str, limit: int = 5, timeout: int | None = None) -> list[Paper]:
     timeout_value = timeout or SEMANTIC_SCHOLAR_TIMEOUT
-    headers: dict[str, str] = {}
+    headers: dict[str, str] = {"User-Agent": "ResearchOS/1.0 (academic-research-assistant)"}
     if SEMANTIC_SCHOLAR_API_KEY:
         headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
 
     response: requests.Response | None = None
-    last_error: Exception | None = None
     max_attempts = max(1, SEMANTIC_SCHOLAR_MAX_RETRIES)
     fields = SEMANTIC_SCHOLAR_FIELDS_PRIMARY
     for attempt in range(1, max_attempts + 1):
@@ -158,131 +229,124 @@ def fetch_semantic_scholar(query: str, limit: int = 5, timeout: int | None = Non
                 timeout=timeout_value,
             )
             if response.status_code == 400 and fields != SEMANTIC_SCHOLAR_FIELDS_FALLBACK:
-                logger.warning(
-                    "Semantic Scholar rejected fields=%r; retrying with fallback field set",
-                    fields,
-                )
                 fields = SEMANTIC_SCHOLAR_FIELDS_FALLBACK
                 continue
-            if response.status_code in {429, 500, 502, 503, 504} and attempt < max_attempts:
-                wait_seconds = SEMANTIC_SCHOLAR_BACKOFF_SECONDS * attempt
-                logger.warning(
-                    "Semantic Scholar temporary failure (status=%s), retrying in %.1fs (attempt %d/%d)",
-                    response.status_code,
-                    wait_seconds,
-                    attempt,
-                    max_attempts,
-                )
-                time.sleep(wait_seconds)
+            if response.status_code == 429:
+                logger.warning("Semantic Scholar rate-limited (HTTP 429); skipping to alternate academic providers.")
+                return []
+            if response.status_code in {500, 502, 503, 504} and attempt < max_attempts:
+                time.sleep(SEMANTIC_SCHOLAR_BACKOFF_SECONDS * attempt)
                 continue
             response.raise_for_status()
             break
         except requests.RequestException as exc:
-            last_error = exc
             if attempt >= max_attempts:
-                raise
-            wait_seconds = SEMANTIC_SCHOLAR_BACKOFF_SECONDS * attempt
-            logger.warning(
-                "Semantic Scholar request failed, retrying in %.1fs (attempt %d/%d): %s",
-                wait_seconds,
-                attempt,
-                max_attempts,
-                exc,
-            )
-            time.sleep(wait_seconds)
-    if response is None:
-        raise RuntimeError("Semantic Scholar request failed without response") from last_error
+                logger.warning("Semantic Scholar request failed: %s", exc)
+                return []
+            time.sleep(SEMANTIC_SCHOLAR_BACKOFF_SECONDS * attempt)
 
-    payload = response.json()
-    data = payload.get("data", [])
-    papers = []
-    for item in data:
-        external_ids = item.get("externalIds") or {}
-        normalized = normalize_paper(
-            {
-                "title": item.get("title", ""),
-                "authors": item.get("authors", []),
-                "year": item.get("year"),
-                "doi": item.get("doi") or external_ids.get("DOI"),
-                "url": item.get("url"),
-                "abstract": item.get("abstract"),
-                "external_id": item.get("paperId"),
-            },
-            source="semantic_scholar",
-        )
-        papers.append(normalized)
-    return papers
+    if response is None or not response.ok:
+        return []
+
+    try:
+        payload = response.json()
+        data = payload.get("data", [])
+        papers = []
+        for item in data:
+            external_ids = item.get("externalIds") or {}
+            oa_pdf = item.get("openAccessPdf") or {}
+            pdf_url = oa_pdf.get("url")
+            normalized = normalize_paper(
+                {
+                    "title": item.get("title", ""),
+                    "authors": item.get("authors", []),
+                    "year": item.get("year"),
+                    "doi": item.get("doi") or external_ids.get("DOI"),
+                    "url": item.get("url"),
+                    "abstract": item.get("abstract"),
+                    "external_id": item.get("paperId"),
+                    "pdf_url": pdf_url,
+                },
+                source="semantic_scholar",
+            )
+            papers.append(normalized)
+        return papers
+    except Exception as exc:
+        logger.warning("Failed to parse Semantic Scholar payload: %s", exc)
+        return []
 
 
 def fetch_arxiv(query: str, limit: int = 5) -> list[Paper]:
-    search = arxiv.Search(query=query, max_results=limit)
-    papers = []
-    if hasattr(search, "results"):
-        iterator = search.results()
-    else:
-        iterator = arxiv.Client().results(search)
-    for result in iterator:
-        papers.append(
-            normalize_paper(
-                {
-                    "title": result.title,
-                    "authors": [author.name for author in result.authors],
-                    "year": result.published.year if result.published else None,
-                    "doi": result.doi,
-                    "url": result.entry_id,
-                    "abstract": result.summary,
-                    "external_id": result.entry_id,
-                },
-                source="arxiv",
-            )
+    try:
+        client = arxiv.Client(
+            page_size=min(limit, 25),
+            delay_seconds=2.0,
+            num_retries=1,
         )
-    return papers
+        search = arxiv.Search(query=query, max_results=limit)
+        papers = []
+        for result in client.results(search):
+            papers.append(
+                normalize_paper(
+                    {
+                        "title": result.title,
+                        "authors": [author.name for author in result.authors],
+                        "year": result.published.year if result.published else None,
+                        "doi": result.doi,
+                        "url": result.entry_id,
+                        "abstract": result.summary,
+                        "external_id": result.entry_id,
+                    },
+                    source="arxiv",
+                )
+            )
+        return papers
+    except Exception as exc:
+        logger.warning("arXiv search failed or rate-limited: %s", exc)
+        return []
 
 
 def fetch_papers(query: str, limit: int = 5) -> list[Paper]:
-    errors: list[Exception] = []
-    semantic_papers: list[Paper] = []
-    arxiv_papers: list[Paper] = []
+    # 1. Fetch from OpenAlex (fastest & highest availability)
+    openalex_papers = fetch_openalex(query, limit=limit)
 
-    try:
-        semantic_papers = fetch_semantic_scholar(query, limit=limit)
-    except Exception as exc:
-        errors.append(exc)
-        logger.warning("Semantic Scholar search failed, continuing with arXiv only: %s", exc)
+    # 2. Fetch from Semantic Scholar
+    semantic_papers = fetch_semantic_scholar(query, limit=limit)
 
-    try:
-        arxiv_papers = fetch_arxiv(query, limit=limit)
-    except Exception as exc:
-        errors.append(exc)
-        logger.warning("arXiv search failed, continuing with Semantic Scholar only: %s", exc)
+    # 3. Fetch from arXiv
+    arxiv_papers = fetch_arxiv(query, limit=limit)
 
-    papers = dedupe_papers(semantic_papers + arxiv_papers)
-    if not papers and errors:
-        raise RuntimeError("Both Semantic Scholar and arXiv searches failed") from errors[0]
+    combined = openalex_papers + semantic_papers + arxiv_papers
+    papers = dedupe_papers(combined)
 
     if not papers:
+        logger.warning("No papers discovered from any academic provider for query: %r", query)
         return []
 
-    query_embedding = np.array(generate_embeddings(query), dtype=float)
-    texts = [f"{paper.title}\n\n{paper.abstract or ''}".strip() for paper in papers]
-    paper_embeddings = generate_embeddings_batch(texts)
+    try:
+        query_embedding = np.array(generate_embeddings(query), dtype=float)
+        texts = [f"{paper.title}\n\n{paper.abstract or ''}".strip() for paper in papers]
+        paper_embeddings = generate_embeddings_batch(texts)
 
-    ranked: list[Paper] = []
-    for paper, embedding in zip(papers, paper_embeddings, strict=True):
-        score = _cosine_similarity(query_embedding, np.array(embedding, dtype=float))
-        ranked.append(
-            Paper(
-                title=paper.title,
-                authors=paper.authors,
-                year=paper.year,
-                doi=paper.doi,
-                source=paper.source,
-                url=paper.url,
-                abstract=paper.abstract,
-                external_id=paper.external_id,
-                relevance_score=score,
+        ranked: list[Paper] = []
+        for paper, embedding in zip(papers, paper_embeddings, strict=True):
+            score = _cosine_similarity(query_embedding, np.array(embedding, dtype=float))
+            ranked.append(
+                Paper(
+                    title=paper.title,
+                    authors=paper.authors,
+                    year=paper.year,
+                    doi=paper.doi,
+                    source=paper.source,
+                    url=paper.url,
+                    abstract=paper.abstract,
+                    external_id=paper.external_id,
+                    relevance_score=score,
+                )
             )
-        )
 
-    ranked.sort(key=lambda paper: paper.relevance_score or -1.0, reverse=True)
-    return ranked
+        ranked.sort(key=lambda paper: paper.relevance_score or -1.0, reverse=True)
+        return ranked[:limit]
+    except Exception as exc:
+        logger.warning("Error computing embedding relevance ranking; returning deduplicated papers: %s", exc)
+        return papers[:limit]

@@ -1,7 +1,15 @@
+from pathlib import Path
 from dotenv import load_dotenv
 import os
 
+_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
+if _ENV_PATH.exists():
+    load_dotenv(dotenv_path=_ENV_PATH)
 load_dotenv()
+
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "https://api.groq.com/openai/v1")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "qwen/qwen3.8-27b")
 
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3:8b")
 QDRANT_URL = os.getenv("QDRANT_URL")

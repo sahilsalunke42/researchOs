@@ -265,5 +265,30 @@ def ingest_papers(
                     )
                 )
         except Exception:
-            logger.exception("Failed to ingest paper: %s", paper.title)
+            logger.info("PDF download failed for '%s'; indexing abstract and metadata directly into vector store", paper.title)
+            try:
+                text = f"{paper.title}\n\nAbstract:\n{paper.abstract or ''}".strip()
+                if text:
+                    points = prepare_points(
+                        paper,
+                        text,
+                        source_url=paper.url or f"doi:{paper.doi or ''}",
+                        chunk_size=chunk_size,
+                        overlap=overlap,
+                        project_id=project_id,
+                        user_id=user_id,
+                    )
+                    if points:
+                        ensure_collection(collection_name, len(points[0].vector))
+                        client.upsert(collection_name=collection_name, points=points)
+                        results.append(
+                            IngestionResult(
+                                paper_key=paper_key(paper),
+                                chunk_count=len(points),
+                                point_ids=tuple(str(p.id) for p in points),
+                                source_url=paper.url or "",
+                            )
+                        )
+            except Exception:
+                logger.exception("Failed to index abstract for paper: %s", paper.title)
     return results
