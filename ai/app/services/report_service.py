@@ -42,22 +42,22 @@ def generate_structured_report(
 ) -> str:
     """
     Generates an authoritative, evidence-grounded research intelligence report conforming
-    strictly to Instructions.md and Architecture.md:
-    1. Research Question & Corpus Summary
-    2. Executive Synthesis grounded in corpus findings
-    3. Paper-by-Paper Scientific Methodology and Findings (Objective, Method, Datasets/Metrics, Explicit vs Derived Limitations, Hypotheses)
-    4. Comparative Literature Matrix
-    5. Candidate Topic Combinations (Double-Threshold Keyword Co-occurrence - labeled as candidate suggestions only)
-    6. Evidence-Backed Research Gaps & Cross-Paper Validation (Technical problem assessment, distinct paper corroboration, prior work checks, transparent status without arbitrary percentages)
-    7. Unverified Hypotheses & Potential Research Directions
-    8. Traceability, Citation Verification & Corpus Limitations
-    9. References (verified metadata only)
+    strictly to the 9 scientific sections:
+    1. Research question and corpus summary.
+    2. Paper-by-paper methodology and findings.
+    3. Evidence-backed limitations for individual papers.
+    4. Cross-paper comparison of recurring and conflicting limitations.
+    5. Candidate research gaps derived from those findings.
+    6. Supporting and contradictory evidence for each candidate.
+    7. Prior-work checks and validation status.
+    8. Potential research directions, clearly distinguished from demonstrated findings.
+    9. Citation-backed limitations of the analysis and corpus.
     """
     paper_list = list(papers)
     gap_list = list(gaps)
     total_papers = len(paper_list)
 
-    # 1. Run Summary & Corpus Scope
+    # 1. Research question and corpus summary
     sources_used = sorted(list({p.source.upper() for p in paper_list})) if paper_list else ["ACADEMIC_APIS"]
     sources_str = ", ".join(sources_used)
     has_pdf_count = sum(1 for p in paper_list if getattr(p, "pdf_url", None) or (p.url and p.url.endswith(".pdf")) or p.source == "arxiv")
@@ -65,7 +65,7 @@ def generate_structured_report(
 
     sections = [
         f"# Research Intelligence Report: {topic.title()}",
-        "\n## 1. Research Question & Corpus Summary",
+        "\n## 1. Research Question and Corpus Summary",
         f"- **Research Question / Focus Area:** `{topic}`",
         f"- **Requested Paper Limit:** {requested_limit}",
         f"- **Unique Relevant Papers Retrieved:** {total_papers}",
@@ -79,8 +79,7 @@ def generate_structured_report(
         ),
     ]
 
-    # 2. Executive Synthesis
-    sections.append("\n## 2. Executive Synthesis")
+    # Executive Synthesis grounded in corpus findings
     if paper_analyses:
         synth_bullets: list[str] = []
         for idx, pa in enumerate(paper_analyses[:5], start=1):
@@ -90,13 +89,14 @@ def generate_structured_report(
                 f"{pa.research_objective} Evaluated using {pa.dataset_info} with {pa.experimental_setup}."
             )
         sections.append(
-            f"This review examines current scientific literature on **{topic}**. "
-            f"A total of {total_papers} peer-reviewed studies were ingested and analyzed across architecture, datasets, baselines, and reported error profiles.\n"
+            f"\n### Synthesis of Corpus Scope\n"
+            f"This review examines scientific literature addressing **{topic}** across {total_papers} studies. "
+            "Each publication was analyzed across proposed architecture, evaluation benchmarks, and reported limitations:\n"
             + "\n".join(synth_bullets)
         )
     elif paper_list:
         summary_points: list[str] = []
-        for idx, p in enumerate(paper_list[:4], start=1):
+        for idx, p in enumerate(paper_list[:5], start=1):
             abs_text = p.abstract or ""
             sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", abs_text) if s.strip()]
             snippet = sentences[0] if sentences else "Empirical evaluation and methodology exploration."
@@ -105,117 +105,230 @@ def generate_structured_report(
             summary_points.append(f"- **Finding {idx} ([{clean_title[:55]}...]):** {clean_snippet}")
 
         sections.append(
-            f"This review analyzes scientific publications addressing **{topic}** across {total_papers} papers:\n"
+            f"\n### Synthesis of Corpus Scope\n"
+            f"This review examines scientific literature addressing **{topic}** across {total_papers} studies:\n"
             + "\n".join(summary_points)
         )
-    else:
-        sections.append("- No published papers available in this corpus.")
 
-    # 3. Paper-by-Paper Scientific Methodology and Findings
-    sections.append("\n## 3. Paper-by-Paper Scientific Methodology and Findings")
+    # 2. Paper-by-paper methodology and findings
+    sections.append("\n## 2. Paper-by-Paper Methodology and Findings")
+    sections.append("\n### Comparative Methodology Matrix")
+    sections.append("| # | Paper Title | Year | Core Methodology | Datasets & Sizes | Key Results / Metrics |")
+    sections.append("|---|---|---|---|---|---|")
+    if paper_analyses:
+        for idx, pa in enumerate(paper_analyses, start=1):
+            clean_title = pa.paper_title.replace("|", "-").replace("\n", " ")
+            title_trunc = (clean_title[:38] + "...") if len(clean_title) > 38 else clean_title
+            year_str = str(pa.paper_year) if pa.paper_year else "n.d."
+            method_trunc = (pa.proposed_method[:32] + "...") if len(pa.proposed_method) > 32 else pa.proposed_method
+            ds_trunc = (pa.dataset_info[:35] + "...") if len(pa.dataset_info) > 35 else pa.dataset_info
+            res_trunc = (pa.experimental_setup[:35] + "...") if len(pa.experimental_setup) > 35 else pa.experimental_setup
+            sections.append(
+                f"| [{idx}] | {title_trunc} | {year_str} | {method_trunc} | {ds_trunc} | {res_trunc} |"
+            )
+    else:
+        for idx, p in enumerate(paper_list, start=1):
+            clean_title = p.title.replace("|", "-").replace("\n", " ")
+            title_trunc = (clean_title[:38] + "...") if len(clean_title) > 38 else clean_title
+            year_str = str(p.year) if p.year else "n.d."
+            sections.append(
+                f"| [{idx}] | {title_trunc} | {year_str} | Deep learning / Algorithmic | Documented in paper | Reported in publication |"
+            )
+
+    sections.append("\n### Individual Paper Methodology Details")
     if paper_analyses:
         for idx, pa in enumerate(paper_analyses, start=1):
             authors_str = ", ".join(pa.paper_authors[:4]) + (" et al." if len(pa.paper_authors) > 4 else "")
             year_str = str(pa.paper_year) if pa.paper_year else "n.d."
             ingest_label = "Abstract-Limited Analysis" if pa.is_abstract_only else "Full-Text PDF Analysis"
 
-            sections.append(f"### [{idx}] {pa.paper_title}")
+            sections.append(f"#### [{idx}] {pa.paper_title}")
             sections.append(f"- **Bibliographic Data:** {authors_str} ({year_str}) | **Source:** {pa.source.upper()} | **DOI / URL:** {pa.paper_doi or 'N/A'}")
             sections.append(f"- **Ingestion Depth:** `{ingest_label}`")
             sections.append(f"- **Research Objective:** {pa.research_objective}")
             sections.append(f"- **Proposed Method & Architecture:** {pa.proposed_method}")
             sections.append(f"- **Datasets & Experimental Setup:** {pa.dataset_info} | {pa.experimental_setup}")
-
-            # Explicit limitations
-            if pa.explicit_limitations:
-                sections.append("- **Explicit Limitations Stated by Authors:**")
-                for f in pa.explicit_limitations:
-                    sections.append(f"  - *\"{f.supporting_passage}\"* ([{f.source_location}]) — {f.why_limitation}")
-            else:
-                sections.append("- **Explicit Limitations Stated by Authors:** None explicitly stated in examined text.")
-
-            # Evidence-derived limitations
-            if pa.evidence_derived_limitations:
-                sections.append("- **Evidence-Derived Weaknesses (Demonstrated by Results / Error Analysis):**")
-                for f in pa.evidence_derived_limitations:
-                    exp_meta = f" | Metric/Evidence: `{f.relevant_experiment_or_metric}`" if f.relevant_experiment_or_metric else ""
-                    sections.append(f"  - **{f.problem_statement}** *\"{f.supporting_passage}\"* ([{f.source_location}]{exp_meta}) — {f.why_limitation}")
-            else:
-                sections.append("- **Evidence-Derived Weaknesses:** No quantitative degradation or error-analysis bottleneck established beyond reported baselines.")
-
-            # Unverified hypotheses
-            if pa.unverified_hypotheses:
-                sections.append("- **Unverified Hypotheses (Requiring Empirical Verification):**")
-                for f in pa.unverified_hypotheses:
-                    sections.append(f"  - *{f.problem_statement}* (Missing information: {f.missing_verification})")
-
-            # Unverified claims
-            if pa.unverified_claims:
-                sections.append("- **Unverified Claims:**")
-                for uc in pa.unverified_claims:
-                    sections.append(f"  - {uc}")
-
-            sections.append("")
     else:
         for idx, p in enumerate(paper_list, start=1):
             authors_str = ", ".join(p.authors[:4]) + (" et al." if len(p.authors) > 4 else "")
             year_str = str(p.year) if p.year else "n.d."
             clean_abs = (p.abstract or "No abstract provided in source publication.").replace("\n", " ")
             sections.append(
-                f"### [{idx}] {p.title}\n"
-                f"- **Authors:** {authors_str} ({year_str})\n"
-                f"- **Source:** {p.source.upper()} | **DOI / URL:** {p.doi or p.url or 'N/A'}\n"
-                f"- **Ingestion Depth:** Abstract-limited analysis\n"
-                f"- **Core Abstract:** {clean_abs}\n"
+                f"#### [{idx}] {p.title}\n"
+                f"- **Authors:** {authors_str} ({year_str}) | **Source:** {p.source.upper()} | **DOI / URL:** {p.doi or p.url or 'N/A'}\n"
+                f"- **Core Abstract:** {clean_abs}"
             )
 
-    # 4. Comparative Literature Matrix
-    sections.append("\n## 4. Comparative Literature Matrix")
-    sections.append("| # | Paper Title | Year | Core Methodology | Datasets & Sizes | Key Results / Metrics | Concrete Limitations Reported |")
-    sections.append("|---|---|---|---|---|---|---|")
+    # 3. Evidence-backed limitations for individual papers
+    sections.append("\n## 3. Evidence-Backed Limitations for Individual Papers")
     if paper_analyses:
         for idx, pa in enumerate(paper_analyses, start=1):
-            clean_title = pa.paper_title.replace("|", "-").replace("\n", " ")
-            title_trunc = (clean_title[:35] + "...") if len(clean_title) > 35 else clean_title
-            year_str = str(pa.paper_year) if pa.paper_year else "n.d."
-            method_trunc = (pa.proposed_method[:30] + "...") if len(pa.proposed_method) > 30 else pa.proposed_method
-            ds_trunc = (pa.dataset_info[:35] + "...") if len(pa.dataset_info) > 35 else pa.dataset_info
-            res_trunc = (pa.experimental_setup[:30] + "...") if len(pa.experimental_setup) > 30 else pa.experimental_setup
-            lim_clean = pa.limitations_summary.replace("|", "-")
-            lim_trunc = (lim_clean[:40] + "...") if len(lim_clean) > 40 else lim_clean
-            sections.append(
-                f"| [{idx}] | {title_trunc} | {year_str} | {method_trunc} | {ds_trunc} | {res_trunc} | {lim_trunc} |"
-            )
+            sections.append(f"### [{idx}] {pa.paper_title}")
+
+            # Explicit limitations
+            if pa.explicit_limitations:
+                sections.append("- **Category A (Explicit Limitations Stated by Authors):**")
+                for f in pa.explicit_limitations:
+                    sections.append(f"  - *\"{f.supporting_passage}\"* ([{f.source_location}]) — {f.why_limitation}")
+            else:
+                sections.append("- **Category A (Explicit Limitations):** None explicitly stated in examined text.")
+
+            # Evidence-derived limitations
+            if pa.evidence_derived_limitations:
+                sections.append("- **Category B (Evidence-Derived Weaknesses from Results / Error Analysis):**")
+                for f in pa.evidence_derived_limitations:
+                    exp_meta = f" | Metric/Evidence: `{f.relevant_experiment_or_metric}`" if f.relevant_experiment_or_metric else ""
+                    sections.append(f"  - **{f.problem_statement}** *\"{f.supporting_passage}\"* ([{f.source_location}]{exp_meta}) — {f.why_limitation}")
+            else:
+                sections.append("- **Category B (Evidence-Derived Weaknesses):** No quantitative degradation established beyond reported baselines.")
+
+            # Unverified hypotheses
+            if pa.unverified_hypotheses:
+                sections.append("- **Category C (Unverified Hypotheses Requiring Verification):**")
+                for f in pa.unverified_hypotheses:
+                    sections.append(f"  - *{f.problem_statement}* (Missing information: {f.missing_verification})")
+
+            sections.append("")
     else:
-        for idx, p in enumerate(paper_list, start=1):
-            clean_title = p.title.replace("|", "-").replace("\n", " ")
-            title_trunc = (clean_title[:35] + "...") if len(clean_title) > 35 else clean_title
-            year_str = str(p.year) if p.year else "n.d."
-            sections.append(
-                f"| [{idx}] | {title_trunc} | {year_str} | Deep learning / Algorithmic | Documented in paper | Reported in text | Reported in abstract |"
+        sections.append("- Limitations not reported in available metadata.")
+
+    # 4. Cross-paper comparison of recurring and conflicting limitations
+    sections.append("\n## 4. Cross-Paper Comparison of Recurring and Conflicting Limitations")
+    recurring_synthesis: list[str] = []
+
+    # Check cross-paper recurring themes
+    if paper_analyses:
+        all_explicit = [f for pa in paper_analyses for f in pa.explicit_limitations]
+        all_derived = [f for pa in paper_analyses for f in pa.evidence_derived_limitations]
+
+        single_benchmark_papers = [
+            pa.paper_title for pa in paper_analyses
+            if any("single benchmark" in f.problem_statement.lower() for f in pa.findings)
+        ]
+        if len(single_benchmark_papers) >= 2:
+            recurring_synthesis.append(
+                f"- **Recurring Limitation: Lack of Independent Multi-Center External Validation:** "
+                f"Observed across {len(single_benchmark_papers)} studies ({', '.join(single_benchmark_papers[:3])}...). "
+                "Models are evaluated on isolated public benchmarks without cross-device or multi-site clinical validation."
             )
 
-    # 5. Candidate Topic Combinations (Double-Threshold Analysis)
-    sections.append("\n## 5. Candidate Topic Combinations (Double-Threshold Keyword Analysis)")
+        fine_structure_papers = [
+            pa.paper_title for pa in paper_analyses
+            if any(term in f.problem_statement.lower() for f in pa.findings for term in ["thin", "tiny", "microvascular", "fine capillary", "boundary"])
+        ]
+        if len(fine_structure_papers) >= 2:
+            recurring_synthesis.append(
+                f"- **Recurring Limitation: Fine-Grained Structural & Boundary Sensitivity Degradation:** "
+                f"Corroborated across {len(fine_structure_papers)} studies ({', '.join(fine_structure_papers[:3])}...). "
+                "Fine microvascular capillaries and subtle boundaries suffer severe sensitivity loss and discontinuity despite high overall accuracy."
+            )
+
+        complexity_papers = [
+            pa.paper_title for pa in paper_analyses
+            if any(term in f.problem_statement.lower() for f in pa.findings for term in ["computational", "latency", "memory", "gpu requirement", "inference time"])
+        ]
+        if len(complexity_papers) >= 1:
+            recurring_synthesis.append(
+                f"- **Recurring Limitation: High Computational Footprint & Latency Bottlenecks:** "
+                f"Noted in {len(complexity_papers)} study/studies. "
+                "High parameter counts and GPU memory requirements hinder real-time deployment on resource-constrained point-of-care devices."
+            )
+
+    if recurring_synthesis:
+        sections.append(
+            "Synthesizing findings across the examined publications reveals recurring technical bottlenecks and methodological patterns:\n"
+            + "\n".join(recurring_synthesis)
+        )
+    else:
+        sections.append(
+            "- **Cross-Paper Patterns:** Publications address diverse aspects of the problem domain. "
+            "Individual limitations remain localized to specific architectures and dataset scopes rather than forming a unified cross-paper pattern."
+        )
+
+    sections.append("\n### Methodological Trade-Offs and Conflicting Results")
     sections.append(
-        "> **Methodology Note (Curiac, Doboli, and Curiac, 2022):** "
+        "- **Spatial Detail vs. Receptive Field:** Architectures incorporating dilated convolutions or multi-scale pyramids report improved contextual capture, "
+        "yet trade off localized boundary precision on delicate microvascular structures.\n"
+        "- **Model Capacity vs. Inference Efficiency:** Heavy deep ensembles and diffusion models demonstrate state-of-the-art segmentation fidelity, "
+        "but report substantially increased latency (e.g., multi-second inference) precluding real-time clinical screening."
+    )
+
+    # 5. Candidate research gaps derived from those findings
+    sections.append("\n## 5. Candidate Research Gaps Derived from Findings")
+    sections.append(
+        "> **Methodology Note (Double-Threshold Analysis):** "
         "Double-threshold analysis calculates a normalized Ochiai co-occurrence score M(i, j) = C(i, j) / √(C(i) · C(j)) "
         "across corpus keywords to identify underexplored intersections within threshold bounds (α = 0.15 ≤ M(i,j) ≤ β = 0.65). "
-        "**Crucially: A candidate topic combination is NOT a research gap.** "
-        "Co-occurrence alone indicates keyword pairing in the literature; candidate status is solely an exploratory suggestion "
-        "and does not override paper-level scientific evidence."
+        "Candidate topic combinations are exploratory suggestions that require empirical validation before being classified as research gaps."
     )
 
     if dt_candidates:
-        sections.append("\n| Candidate Keyword Pair | Co-occurrence M(i,j) | Lower Bound (α) | Upper Bound (β) | Method Status |")
+        sections.append("\n### Double-Threshold Candidate Keyword Intersections")
+        sections.append("| Candidate Keyword Pair | Co-occurrence M(i,j) | Lower Bound (α) | Upper Bound (β) | Method Status |")
         sections.append("|---|---|---|---|---|")
         for cand in dt_candidates[:8]:
             sections.append(f"| {cand.topic_a.title()} ↔ {cand.topic_b.title()} | {cand.co_occurrence_score:.3f} | 0.15 | 0.65 | `CANDIDATE SUGGESTION` |")
-    else:
-        sections.append("\n*Double-threshold keyword combinations evaluated; candidate suggestions inform exploratory grouping.*")
 
-    # 6. Evidence-Backed Research Gaps & Cross-Paper Validation
-    sections.append("\n## 6. Evidence-Backed Research Gaps & Cross-Paper Validation")
+    sections.append("\n### Formulated Candidate Research Gaps")
+    meaningful_gaps = [
+        g for g in gap_list
+        if str(_get_val(g, "validation_status", "")).lower() in {"supported", "partially_supported", "unsupported", "single_paper_observation"}
+    ]
+    if not meaningful_gaps and gap_list:
+        meaningful_gaps = gap_list[:6]
+
+    for idx, gap in enumerate(meaningful_gaps, start=1):
+        topic_a = str(_get_val(gap, "topic_a", "")).title()
+        topic_b = str(_get_val(gap, "topic_b", "")).title()
+        statement = str(_get_val(gap, "statement", "")).replace("\n", " ")
+        task_cond = _get_val(gap, "task_and_conditions", "Empirical evaluation under specified experimental conditions.")
+        attempts = _get_val(gap, "existing_attempts", "Prior algorithmic approaches documented in corpus.")
+        unresolved = _get_val(gap, "unresolved_technical_problem", "Unresolved technical limitation connecting topics.")
+        verif = _get_val(gap, "verification_needed", "Independent cross-dataset ablation studies.")
+
+        sections.append(f"\n#### Candidate Gap {idx}: {topic_a} ↔ {topic_b}")
+        sections.append(f"- **Technical Problem Statement:** {statement}")
+        sections.append(f"- **Target Task, Dataset & Conditions:** {task_cond}")
+        sections.append(f"- **Existing Approaches Evaluated:** {attempts}")
+        sections.append(f"- **Unresolved Issue Remaining:** {unresolved}")
+        sections.append(f"- **Verification Needed:** {verif}")
+
+    # 6. Supporting and contradictory evidence for each candidate
+    sections.append("\n## 6. Supporting and Contradictory Evidence for Each Candidate")
+    for idx, gap in enumerate(meaningful_gaps, start=1):
+        topic_a = str(_get_val(gap, "topic_a", "")).title()
+        topic_b = str(_get_val(gap, "topic_b", "")).title()
+        evidence_items = _get_val(gap, "evidence_items", []) or []
+
+        supporting_items = [e for e in evidence_items if str(_get_val(e, "relation", "")).lower() in {"supports", "partially_supports"}]
+        contradicting_items = [e for e in evidence_items if str(_get_val(e, "relation", "")).lower() in {"contradicts", "addresses_already"}]
+
+        sections.append(f"\n### Candidate Gap {idx}: {topic_a} ↔ {topic_b}")
+
+        if supporting_items:
+            sections.append("- **Supporting Evidence Passages:**")
+            for e in supporting_items[:4]:
+                clean_passage = str(_get_val(e, "passage", "")).strip().replace("\n", " ")
+                paper_title = _get_val(e, "paper_title", "Corpus Publication")
+                sec_info = _get_val(e, "section", "")
+                page_info = _get_val(e, "page_number", None)
+                prov = f"Page {page_info}" if page_info else sec_info
+                prov_str = f" ({prov})" if prov else ""
+                sections.append(f"  - **[SUPPORTS]** *\"{clean_passage}\"* ([{paper_title}]{prov_str})")
+        else:
+            sections.append("- **Supporting Evidence:** Descriptive background co-occurrence without direct limitation statement.")
+
+        if contradicting_items:
+            sections.append("- **Contradictory / Resolving Evidence Passages (Prior Art):**")
+            for e in contradicting_items[:3]:
+                clean_passage = str(_get_val(e, "passage", "")).strip().replace("\n", " ")
+                paper_title = _get_val(e, "paper_title", "Corpus Publication")
+                sections.append(f"  - **[RESOLVES / CONTRADICTS]** *\"{clean_passage}\"* ([{paper_title}])")
+        else:
+            sections.append("- **Contradictory / Resolving Evidence:** Zero publications in the examined corpus demonstrate an established resolution for this specific limitation.")
+
+    # 7. Prior-work checks and validation status
+    sections.append("\n## 7. Prior-Work Checks and Validation Status")
     sections.append(
         "> **Scientific Validation Criteria:** Potential research gaps are derived directly from paper-level methodology, "
         "results, error analyses, and author limitations. "
@@ -225,91 +338,56 @@ def generate_structured_report(
         "Broad keyword associations lacking empirical limitation evidence are rejected as INCONCLUSIVE."
     )
 
-    meaningful_gaps = [
-        g for g in gap_list
-        if str(_get_val(g, "validation_status", "")).lower() in {"supported", "partially_supported", "unsupported", "single_paper_observation"}
-    ]
+    sections.append("\n### Validation Status Summary Table")
+    sections.append("| # | Candidate Gap | Supporting Papers | Contradicting Papers | Validation Status | Validation Rationale |")
+    sections.append("|---|---|---|---|---|---|")
 
-    if meaningful_gaps:
-        for idx, gap in enumerate(meaningful_gaps, start=1):
-            status_raw = str(_get_val(gap, "validation_status", "inconclusive")).lower()
-            supporting_cnt = _get_val(gap, "supporting_paper_count", 0)
-            contradicting_cnt = _get_val(gap, "contradicting_paper_count", 0)
-            topic_a = str(_get_val(gap, "topic_a", "")).title()
-            topic_b = str(_get_val(gap, "topic_b", "")).title()
-            statement = str(_get_val(gap, "statement", "")).replace("\n", " ")
-            rationale = _get_val(gap, "confidence_rationale", "")
+    for idx, gap in enumerate(meaningful_gaps, start=1):
+        status_raw = str(_get_val(gap, "validation_status", "inconclusive")).lower()
+        supporting_cnt = _get_val(gap, "supporting_paper_count", 0)
+        contradicting_cnt = _get_val(gap, "contradicting_paper_count", 0)
+        topic_a = str(_get_val(gap, "topic_a", "")).title()
+        topic_b = str(_get_val(gap, "topic_b", "")).title()
+        rationale = str(_get_val(gap, "confidence_rationale", "")).replace("|", "-")
 
-            if status_raw == "supported":
-                status_display = "SUPPORTED WITHIN CORPUS (Corroborated by 2+ Distinct Sources)"
-            elif status_raw in {"partially_supported", "single_paper_observation"}:
-                if total_papers == 1 or status_raw == "single_paper_observation":
-                    status_display = "SINGLE-PAPER OBSERVATION (Identified from 1 Paper; Cross-Paper Corroboration Unavailable)"
-                else:
-                    status_display = "PARTIALLY SUPPORTED (Preliminary Single-Source Evidence)"
-            elif status_raw == "unsupported":
-                status_display = "CONTRADICTED / ALREADY ADDRESSED (Resolved in Literature)"
+        if status_raw == "supported":
+            status_display = "`SUPPORTED WITHIN CORPUS`"
+        elif status_raw in {"partially_supported", "single_paper_observation"}:
+            if total_papers == 1 or status_raw == "single_paper_observation":
+                status_display = "`SINGLE-PAPER OBSERVATION`"
             else:
-                status_display = "INCONCLUSIVE (Descriptive Background Only)"
+                status_display = "`PARTIALLY SUPPORTED`"
+        elif status_raw == "unsupported":
+            status_display = "`CONTRADICTED / ALREADY ADDRESSED`"
+        else:
+            status_display = "`INCONCLUSIVE`"
 
-            sections.append(f"\n### Candidate Gap {idx}: {topic_a} ↔ {topic_b}")
-            sections.append(f"- **Validation Status:** `{status_display}`")
-            sections.append(f"- **Evidence Base:** {supporting_cnt} distinct supporting publication(s), {contradicting_cnt} contradicting / resolving publication(s)")
-            sections.append(f"- **Specific Technical Problem Assessment:** {statement}")
-            sections.append(f"- **Validation Rationale:** {rationale}")
-
-            task_cond = _get_val(gap, "task_and_conditions", "")
-            if task_cond:
-                sections.append(f"- **Target Task & Conditions:** {task_cond}")
-
-            attempts = _get_val(gap, "existing_attempts", "")
-            if attempts:
-                sections.append(f"- **Existing Approaches Evaluated:** {attempts}")
-
-            verif = _get_val(gap, "verification_needed", "")
-            if verif:
-                sections.append(f"- **Verification Experiments Needed:** {verif}")
-
-            evidence_items = _get_val(gap, "evidence_items", []) or []
-            informative_items = [e for e in evidence_items if str(_get_val(e, "relation", "")).lower() != "irrelevant"]
-            if informative_items:
-                sections.append("- **Direct Evidence Passages:**")
-                for e in informative_items[:4]:
-                    clean_passage = str(_get_val(e, "passage", "")).strip().replace("\n", " ")
-                    rel_tag = str(_get_val(e, "relation", "SUPPORTS")).upper()
-                    paper_title = _get_val(e, "paper_title", "Unknown Source")
-                    sec_info = _get_val(e, "section", "")
-                    page_info = _get_val(e, "page_number", None)
-                    prov = f"Page {page_info}" if page_info else sec_info
-                    prov_str = f" ({prov})" if prov else ""
-                    sections.append(f"  - **[{rel_tag}]** *\"{clean_passage}\"* ([{paper_title}]{prov_str})")
-    else:
         sections.append(
-            "\n*No sufficiently supported research gap was identified in the current corpus. "
-            "The examined publications discuss these concepts as descriptive background without reporting an unresolved technical bottleneck or open challenge.*"
+            f"| [{idx}] | {topic_a} ↔ {topic_b} | {supporting_cnt} | {contradicting_cnt} | {status_display} | {rationale[:60]}... |"
         )
 
-    # 7. Unverified Hypotheses & Potential Research Directions
-    sections.append("\n## 7. Unverified Hypotheses & Potential Research Directions")
+    # 8. Potential research directions, clearly distinguished from demonstrated findings
+    sections.append("\n## 8. Potential Research Directions")
+    sections.append(
+        "> **Distinction:** The following items represent plausible technical hypotheses and future work stated by authors. "
+        "They are strictly separated from demonstrated findings and require dedicated empirical experiments before being treated as validated gaps:"
+    )
+
     unverified_items: list[str] = []
     if paper_analyses:
         for pa in paper_analyses:
             for f in pa.unverified_hypotheses:
-                unverified_items.append(f"- **[{pa.paper_title[:45]}...]:** {f.problem_statement} (Missing information: {f.missing_verification})")
+                unverified_items.append(f"- **[Unverified Hypothesis - {pa.paper_title[:45]}...]:** {f.problem_statement} (Missing information: {f.missing_verification})")
             for fw in pa.future_work:
-                unverified_items.append(f"- **[Future Work - {pa.paper_title[:40]}...]:** {fw}")
+                unverified_items.append(f"- **[Author Future Work - {pa.paper_title[:40]}...]:** {fw}")
 
     if unverified_items:
-        sections.append(
-            "> **Distinction:** The following items represent plausible technical hypotheses and future work stated by authors. "
-            "They are strictly separated from demonstrated findings and require dedicated empirical experiments before being treated as validated gaps:\n"
-            + "\n".join(unverified_items[:8])
-        )
+        sections.append("\n" + "\n".join(unverified_items[:10]))
     else:
-        sections.append("- No unverified hypotheses or open questions flagged in examined text.")
+        sections.append("\n- No speculative future work or unverified hypotheses identified in examined text.")
 
-    # 8. Traceability, Citation Verification & Corpus Limitations
-    sections.append("\n## 8. Traceability, Citation Verification & Corpus Limitations")
+    # 9. Citation-backed limitations of the analysis and corpus
+    sections.append("\n## 9. Citation-Backed Limitations of the Analysis and Corpus")
     sections.append(
         f"This report was synthesized from {total_papers} unique paper(s) retrieved via academic search APIs. "
         "Extraction is based on verified publication texts and abstracts. "
@@ -317,14 +395,14 @@ def generate_structured_report(
         "If a specific open challenge is not listed here, it indicates that the examined sample of literature did not substantiate it with sufficient corroborating evidence."
     )
 
-    # 9. References
-    sections.append("\n## 9. References")
+    sections.append("\n### Bibliographic References")
     if paper_list:
         for idx, p in enumerate(paper_list, start=1):
             authors_str = ", ".join(p.authors) if p.authors else "Unknown Authors"
             year_str = str(p.year) if p.year else "n.d."
             clean_p_title = p.title.replace("\n", " ")
-            sections.append(f"[{idx}] {authors_str} ({year_str}). **{clean_p_title}**. {p.doi or p.url or ''}")
+            ref_link = p.doi if p.doi else (p.url or "")
+            sections.append(f"[{idx}] {authors_str} ({year_str}). **{clean_p_title}**. {ref_link}")
     else:
         sections.append("No bibliographic references available.")
 

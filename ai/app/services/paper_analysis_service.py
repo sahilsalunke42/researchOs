@@ -272,32 +272,155 @@ def analyze_paper_content(
     if is_abstract_only:
         # Abstract-limited mode
         abstract_text = paper.abstract or ""
+        if not abstract_text.strip():
+            research_obj = f"Investigation addressing {paper.title}."
+            proposed_meth = "Methodological approach documented in publication title and metadata."
+            dataset_inf = "Dataset details not accessible from bibliographic metadata."
+            exp_setup = "Quantitative evaluation metrics not accessible from bibliographic metadata."
+            findings.append(
+                ExtractedFinding(
+                    problem_statement=f"Empirical methodology, datasets, and quantitative results unavailable for '{paper.title}' due to missing abstract in bibliographic source.",
+                    category=FindingCategory.UNVERIFIED_HYPOTHESIS,
+                    supporting_passage=paper.title,
+                    source_location="Bibliographic Metadata",
+                    why_limitation="Academic indexing API returned title and metadata only without full abstract or PDF text.",
+                    confidence="MEDIUM",
+                    relevant_experiment_or_metric=None,
+                    missing_verification="Access to publication abstract or full PDF text.",
+                )
+            )
+            return PaperAnalysis(
+                paper_title=paper.title,
+                paper_authors=list(paper.authors),
+                paper_year=paper.year,
+                paper_doi=paper.doi,
+                source=paper.source,
+                is_abstract_only=True,
+                research_objective=research_obj,
+                proposed_method=proposed_meth,
+                dataset_info=dataset_inf,
+                experimental_setup=exp_setup,
+                findings=findings,
+                future_work=future_work,
+                unverified_claims=unverified_claims,
+            )
+
         research_obj = _extract_objective(paper.title, abstract_text)
         proposed_meth = _extract_method(abstract_text)
         dataset_inf = _extract_datasets(abstract_text)
         exp_setup = _extract_metrics_and_results(abstract_text)
 
-        # Scan abstract for explicit limitations
+        EXPLICIT_LIMITATION_TERMS = [
+            "limitation", "limitations", "limited", "still limited", "remains limited", "is limited", "are limited",
+            "bottleneck", "bottlenecks", "drawback", "drawbacks", "restricted to", "fails to", "fail to",
+            "failure to", "lack of", "lacks", "inadequate", "struggle", "struggles with", "difficulty in",
+            "difficult to", "hard to", "suffer from", "suffers from", "poor performance", "lower sensitivity",
+            "drops significantly", "drop in", "degrades", "vulnerable to", "absence of", "open challenge",
+            "open problem", "open question", "unresolved", "trade-off", "computational cost", "latency",
+            "untested", "cannot generalize", "poor generalization", "challenging to", "remains challenging",
+            "challenging problem", "few-shot", "scarcity of", "imbalance"
+        ]
+
         sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", abstract_text) if s.strip()]
+
+        # 1. Category A: Explicit limitations in abstract
         for s in sentences:
             s_lower = s.lower()
-            if any(term in s_lower for term in ["limitation", "bottleneck", "drawback", "restricted to", "fails to", "lack of", "inadequate"]):
+            if any(term in s_lower for term in EXPLICIT_LIMITATION_TERMS):
                 findings.append(
                     ExtractedFinding(
                         problem_statement=s,
                         category=FindingCategory.EXPLICIT_LIMITATION,
                         supporting_passage=s,
                         source_location="Abstract (Abstract-limited)",
-                        why_limitation="Authors explicitly state this limitation in publication abstract.",
+                        why_limitation="Authors explicitly state this limitation or challenge in publication abstract.",
                         confidence="HIGH",
-                        missing_verification="Full-text experimental sections and error analysis unavailable in abstract-limited corpus.",
+                        missing_verification="Full-text experimental sections and detailed error analysis unavailable in abstract-limited corpus.",
                     )
                 )
 
-        # Check for unverified broad claims in abstract
+        # 2. Future work statements in abstract
         for s in sentences:
             s_lower = s.lower()
-            if any(claim in s_lower for term in ["clinical application", "ready for deployment", "all retinal diseases", "universal"] for claim in [term]):
+            if any(fw in s_lower for fw in ["future work", "future research", "future developments", "future directions", "remains for future", "plan to explore"]):
+                future_work.append(f"[Abstract] {s}")
+
+        # 3. Category B: Evidence-derived limitations in abstract
+        # 3a. Single benchmark / external validation
+        datasets_tested = [k for k in KNOWN_DATASETS.keys() if re.search(r"\b" + re.escape(k) + r"\b", abstract_text.lower())]
+        if len(datasets_tested) == 1:
+            single_ds_name = datasets_tested[0].upper()
+            findings.append(
+                ExtractedFinding(
+                    problem_statement=f"Evaluation restricted to single benchmark ({single_ds_name}) without independent external cross-dataset or cross-device validation.",
+                    category=FindingCategory.EVIDENCE_DERIVED_LIMITATION,
+                    supporting_passage=f"Abstract reports evaluation solely on {single_ds_name} without multi-center external test cohort.",
+                    source_location="Abstract (Experimental Scope)",
+                    why_limitation="Lack of independent external validation limits verification of clinical generalization across imaging devices and patient demographics.",
+                    confidence="HIGH",
+                    relevant_experiment_or_metric=f"Single-dataset evaluation on {single_ds_name}",
+                    missing_verification="Cross-dataset evaluation on independent cohorts (e.g., STARE, CHASE_DB1, or multi-site data).",
+                )
+            )
+
+        # 3b. Fine structure / thin vessel sensitivity drops
+        for s in sentences:
+            s_lower = s.lower()
+            if any(term in s_lower for term in ["thin vessel", "tiny vessel", "small vessel", "microvascular", "fine capillary", "thin structure"]) and any(
+                drop in s_lower for drop in ["limited", "drops", "drop", "lower", "degrade", "poor", "missed", "disconnected", "challenging", "difficulty", "difficult", "struggle"]
+            ):
+                findings.append(
+                    ExtractedFinding(
+                        problem_statement="Effectiveness in segmenting fine microvascular / tiny structures remains limited compared to overall vessel segmentation.",
+                        category=FindingCategory.EVIDENCE_DERIVED_LIMITATION,
+                        supporting_passage=s,
+                        source_location="Abstract (Results / Methodology)",
+                        why_limitation="Abstract reports quantitative or qualitative performance limitation on fine / tiny structures.",
+                        confidence="HIGH",
+                        relevant_experiment_or_metric="Fine-vessel sensitivity / diameter-stratified evaluation",
+                        missing_verification="Detailed per-pixel vessel diameter calibration curve on full test set.",
+                    )
+                )
+
+        # 3c. Computational complexity and latency in abstract
+        for s in sentences:
+            s_lower = s.lower()
+            if any(comp in s_lower for comp in ["high computational cost", "computational complexity", "inference time", "latency", "memory intensive", "gpu requirement"]):
+                findings.append(
+                    ExtractedFinding(
+                        problem_statement="High computational complexity or latency reported as a bottleneck for edge / real-time deployment.",
+                        category=FindingCategory.EVIDENCE_DERIVED_LIMITATION,
+                        supporting_passage=s,
+                        source_location="Abstract (System Complexity)",
+                        why_limitation="Model complexity hinders execution on low-resource clinical or mobile screening devices.",
+                        confidence="HIGH",
+                        relevant_experiment_or_metric="Inference latency / parameter profiling",
+                        missing_verification="Quantization, pruning, or mobile hardware benchmarking.",
+                    )
+                )
+
+        # 4. Category C: Unverified Hypotheses in abstract mode
+        # Guardrail: If paper addresses vessel segmentation but does not report width-specific error analysis
+        if any(term in (paper.title + " " + abstract_text).lower() for term in ["vessel", "segmentation", "detection"]):
+            has_explicit_thin_finding = any("thin" in f.problem_statement.lower() or "tiny" in f.problem_statement.lower() for f in findings)
+            if not has_explicit_thin_finding:
+                findings.append(
+                    ExtractedFinding(
+                        problem_statement="Fine/thin vessel segmentation performance is unverified in available abstract results.",
+                        category=FindingCategory.UNVERIFIED_HYPOTHESIS,
+                        supporting_passage=paper.title,
+                        source_location="Abstract (Omitted Detail)",
+                        why_limitation="Paper reports overall accuracy/metrics but does not report diameter-stratified error breakdown.",
+                        confidence="MEDIUM",
+                        relevant_experiment_or_metric="None reported for thin vessel width brackets",
+                        missing_verification="Empirical evaluation on vessel-width-specific ground truth masks.",
+                    )
+                )
+
+        # 5. Check for unverified broad claims in abstract
+        for s in sentences:
+            s_lower = s.lower()
+            if any(claim in s_lower for claim in ["clinical application", "ready for deployment", "all retinal diseases", "universal"]):
                 unverified_claims.append(f"Abstract states '{s}', but empirical clinical validation cannot be verified from abstract alone.")
 
         return PaperAnalysis(

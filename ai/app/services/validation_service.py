@@ -406,18 +406,18 @@ def formulate_and_validate_scientific_gaps(
             "topic_a": "Cross-Dataset Validation",
             "topic_b": "External Generalization",
             "title": "Weak External Generalization and Lack of Independent Multi-Center Validation",
-            "keywords": ["single benchmark", "cross-dataset", "external validation", "multi-center", "generalization", "independent test cohort", "site-specific"],
-            "task_and_conditions": "Retinal fundus image analysis evaluated on isolated single-center datasets.",
-            "existing_attempts": "Deep neural networks trained and validated exclusively on single public datasets (e.g. DRIVE, STARE).",
+            "keywords": ["single benchmark", "cross-dataset", "external validation", "multi-center", "generalization", "independent test cohort", "site-specific", "domain shift", "out-of-distribution", "different dataset", "cross-device"],
+            "task_and_conditions": "Evaluation across diverse sensor modalities, acquisition sites, and independent patient cohorts.",
+            "existing_attempts": "Deep neural networks trained and validated primarily on isolated public benchmarks (e.g. DRIVE, STARE, single-center datasets).",
             "unresolved_technical_problem": "Severe performance degradation and domain shifts when evaluated across different imaging devices, optical sensors, and diverse patient demographics.",
-            "verification_needed": "Zero-shot cross-dataset evaluation across independent cohorts (e.g. training on DRIVE and testing on STARE/CHASE_DB1 and clinical multi-site data).",
+            "verification_needed": "Zero-shot cross-dataset evaluation across independent cohorts and clinical multi-site test sets.",
         },
         {
             "id": "thin_vessel_recovery",
             "topic_a": "Retinal Vessel Segmentation",
             "topic_b": "Thin Vessel Recovery",
             "title": "Reduced Sensitivity and Fragmentation in Fine Retinal Microvasculature Segmentation",
-            "keywords": ["thin vessel", "thin structure", "small vessel", "microvascular", "fine capillary", "microaneurysm"],
+            "keywords": ["thin vessel", "tiny vessel", "small vessel", "microvascular", "fine capillary", "microaneurysm", "small object", "thin structure", "boundary", "fine detail", "low contrast"],
             "task_and_conditions": "Automated retinal microvasculature tracing under low-contrast and varying illumination.",
             "existing_attempts": "U-Net, attention networks, and multi-scale feature pyramids optimizing aggregate Dice/accuracy metrics.",
             "unresolved_technical_problem": "Thin capillaries and small branching microvessels suffer severe sensitivity loss and boundary discontinuity despite high overall image-level accuracy.",
@@ -428,10 +428,10 @@ def formulate_and_validate_scientific_gaps(
             "topic_a": "Rare Pathology Grading",
             "topic_b": "Class Imbalance Sensitivity",
             "title": "Suboptimal Detection on Minority Pathological Classes and Difficult Samples",
-            "keywords": ["minority class", "class imbalance", "rare pathology", "severe dr", "proliferative", "unbalanced"],
-            "task_and_conditions": "Automated multi-grade diabetic retinopathy and retinal disease classification under acute class imbalance.",
+            "keywords": ["minority class", "class imbalance", "rare pathology", "severe dr", "proliferative", "unbalanced", "rare disease", "imbalanced data"],
+            "task_and_conditions": "Automated multi-grade disease classification under acute class distribution skew.",
             "existing_attempts": "Standard cross-entropy loss, weighted loss functions, and heuristic data oversampling.",
-            "unresolved_technical_problem": "Predictive sensitivity drops drastically on critical high-risk minority pathological grades (e.g., proliferative DR, subtle microaneurysms).",
+            "unresolved_technical_problem": "Predictive sensitivity drops drastically on critical high-risk minority pathological grades and subtle lesions.",
             "verification_needed": "Cost-sensitive evaluation, stratified sensitivity/specificity curves, and external class-balanced test sets.",
         },
         {
@@ -439,16 +439,29 @@ def formulate_and_validate_scientific_gaps(
             "topic_a": "Deep Model Architecture",
             "topic_b": "Clinical Real-Time Deployment",
             "title": "High Computational Complexity Impeding Real-Time Edge and Mobile Clinical Screening",
-            "keywords": ["computational complexity", "high computational cost", "inference time", "memory intensive", "latency", "real-time"],
-            "task_and_conditions": "Point-of-care retinal screening in resource-constrained outpatient clinics and mobile devices.",
+            "keywords": ["computational complexity", "high computational cost", "inference time", "memory intensive", "latency", "real-time", "high parameter", "gpu requirement"],
+            "task_and_conditions": "Point-of-care clinical screening in resource-constrained outpatient clinics and mobile devices.",
             "existing_attempts": "Ensemble architectures, multi-stage cascading networks, and heavy vision transformers.",
-            "unresolved_technical_problem": "High parameter volume, memory footprint, and slow inference prevent deployment on low-power handheld fundus cameras.",
+            "unresolved_technical_problem": "High parameter volume, memory footprint, and slow inference prevent deployment on low-power handheld devices.",
             "verification_needed": "Rigorous hardware profiling, FLOPs/latency benchmarks, and model quantization/pruning studies.",
+        },
+        {
+            "id": "annotation_scarcity",
+            "topic_a": "Supervised Learning",
+            "topic_b": "Annotation Scarcity",
+            "title": "Heavy Dependency on Dense Pixel Annotations and Scarcity of Expert Ground Truth",
+            "keywords": ["annotation", "annotated data", "scarcity", "expensive annotation", "labeling", "unsupervised", "semi-supervised", "few-shot", "scarcity of"],
+            "task_and_conditions": "Model training in clinical domains where expert manual segmentation is prohibitively labor-intensive.",
+            "existing_attempts": "Fully supervised deep networks requiring dense pixel-level ground truth masks.",
+            "unresolved_technical_problem": "Inability to scale to new imaging modalities or rare clinical indications without expensive expert manual annotation.",
+            "verification_needed": "Benchmarking few-shot, self-supervised, and weak-label learning paradigms against fully supervised baselines.",
         },
     ]
 
     validated_gaps: list[ValidatedGap] = []
+    seen_gap_keys: set[str] = set()
 
+    # 1. Process Core Cross-Paper Thematic Candidates
     for theme in THEMES:
         theme_keywords = theme["keywords"]
         supporting_findings: list[tuple[PaperAnalysis, Any]] = []
@@ -571,6 +584,9 @@ def formulate_and_validate_scientific_gaps(
             "Lack of documented solutions within this subset does not preclude external solutions published outside this corpus."
         )
 
+        gap_key = f"{theme['topic_a'].lower()}|{theme['topic_b'].lower()}"
+        seen_gap_keys.add(gap_key)
+
         validated_gaps.append(
             ValidatedGap(
                 topic_a=theme["topic_a"],
@@ -590,6 +606,94 @@ def formulate_and_validate_scientific_gaps(
                 verification_needed=theme["verification_needed"],
             )
         )
+
+    # 2. Process and Validate Double-Threshold Topic Candidates
+    for dt_cand in dt_candidates:
+        dt_key = f"{dt_cand.topic_a.lower()}|{dt_cand.topic_b.lower()}"
+        dt_rev_key = f"{dt_cand.topic_b.lower()}|{dt_cand.topic_a.lower()}"
+        if dt_key in seen_gap_keys or dt_rev_key in seen_gap_keys:
+            continue
+        seen_gap_keys.add(dt_key)
+
+        validated_dt = validate_candidate_gap(dt_cand, papers, project_id=project_id)
+
+        # Build 6-question context for the double-threshold candidate
+        cand_task = f"Investigation of {dt_cand.topic_a.title()} in conjunction with {dt_cand.topic_b.title()}."
+        cand_attempts = f"Techniques explored in {validated_dt.supporting_paper_count + validated_dt.contradicting_paper_count} publication(s) in corpus."
+        cand_problem = (
+            f"Open limitation connecting '{dt_cand.topic_a.title()}' and '{dt_cand.topic_b.title()}'"
+            if validated_dt.validation_status in {"supported", "partially_supported"}
+            else f"Topic intersection '{dt_cand.topic_a.title()}' ↔ '{dt_cand.topic_b.title()}' without substantiated open bottleneck."
+        )
+        cand_verification = f"Independent ablation studies and cross-dataset evaluations for {dt_cand.topic_a.title()} ↔ {dt_cand.topic_b.title()}."
+
+        validated_gaps.append(
+            ValidatedGap(
+                topic_a=validated_dt.topic_a,
+                topic_b=validated_dt.topic_b,
+                statement=validated_dt.statement,
+                co_occurrence_score=validated_dt.co_occurrence_score,
+                validation_status=validated_dt.validation_status,
+                confidence_rationale=validated_dt.confidence_rationale,
+                evidence_items=validated_dt.evidence_items,
+                supporting_paper_count=validated_dt.supporting_paper_count,
+                contradicting_paper_count=validated_dt.contradicting_paper_count,
+                total_corpus_papers=validated_dt.total_corpus_papers,
+                corpus_limitations=validated_dt.corpus_limitations,
+                unresolved_technical_problem=cand_problem,
+                task_and_conditions=cand_task,
+                existing_attempts=cand_attempts,
+                verification_needed=cand_verification,
+            )
+        )
+
+    # 3. Process Domain-Specific Explicit Author Limitations from Individual Papers
+    for pa in paper_analyses:
+        for f in pa.explicit_limitations:
+            # Check if this explicit limitation is already represented
+            f_lower = f.problem_statement.lower()
+            if any(k in f_lower for theme in THEMES for k in theme["keywords"]):
+                continue  # already covered under themes
+
+            topic_pair_key = f"{pa.paper_title[:20].lower()}|explicit_limit"
+            if topic_pair_key in seen_gap_keys:
+                continue
+            seen_gap_keys.add(topic_pair_key)
+
+            page_num, sec_name = _parse_source_location(f.source_location)
+            ev_item = EvidenceItem(
+                paper_title=pa.paper_title,
+                paper_doi=pa.paper_doi,
+                passage=f.supporting_passage,
+                page_number=page_num,
+                section=sec_name or ("Abstract" if pa.is_abstract_only else "Discussion"),
+                relation="supports",
+                rationale=f.why_limitation,
+                finding_category="EXPLICIT_LIMITATION",
+            )
+
+            status_exp = "partially_supported" if total_papers > 1 else "single_paper_observation"
+            rat_exp = f"Author-stated explicit limitation identified in {pa.paper_title}. Cross-paper corroboration requires broader multi-study evaluation."
+
+            validated_gaps.append(
+                ValidatedGap(
+                    topic_a="Methodology",
+                    topic_b=f.problem_statement[:35].title(),
+                    statement=f"Author-Stated Research Limitation in '{pa.paper_title}': \"{f.supporting_passage}\".",
+                    co_occurrence_score=0.25,
+                    validation_status=status_exp,
+                    confidence_rationale=rat_exp,
+                    evidence_items=[ev_item],
+                    supporting_paper_count=1,
+                    contradicting_paper_count=0,
+                    total_corpus_papers=total_papers,
+                    corpus_limitations=f"Single-source author limitation from {pa.paper_title}.",
+                    unresolved_technical_problem=f.problem_statement,
+                    task_and_conditions=pa.research_objective,
+                    existing_attempts=pa.proposed_method,
+                    verification_needed=f.missing_verification or "Independent experimental verification on external datasets.",
+                )
+            )
 
     status_order = {"supported": 0, "partially_supported": 1, "single_paper_observation": 1, "unsupported": 2, "inconclusive": 3}
     validated_gaps.sort(key=lambda g: (status_order.get(g.validation_status.lower(), 4), -g.supporting_paper_count, -g.co_occurrence_score))
