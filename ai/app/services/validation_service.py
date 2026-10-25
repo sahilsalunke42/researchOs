@@ -11,6 +11,7 @@ from app.services.paper_service import Paper
 
 logger = logging.getLogger(__name__)
 
+# Explicit indicators for open scientific limitations, bottlenecks, and unresolved challenges
 LIMITATION_INDICATORS = [
     "limitation",
     "limitations",
@@ -49,6 +50,7 @@ LIMITATION_INDICATORS = [
     "untested",
 ]
 
+# Explicit indicators for established solutions, resolved challenges, or state-of-the-art breakthroughs
 SOLUTION_INDICATORS = [
     "we solve",
     "we resolve",
@@ -65,6 +67,7 @@ SOLUTION_INDICATORS = [
     "eliminates the need",
 ]
 
+# Explicit indicators for contradictory findings or conflicting evidence
 CONTRADICTION_INDICATORS = [
     "contrary to",
     "conflicting",
@@ -84,7 +87,7 @@ class EvidenceItem:
     section: str | None
     relation: str  # "supports", "partially_supports", "addresses_already", "contradicts", "irrelevant"
     rationale: str = ""
-    finding_category: str = "EXPLICIT_LIMITATION"  # EXPLICIT_LIMITATION, EVIDENCE_DERIVED_LIMITATION, UNVERIFIED_HYPOTHESIS
+    finding_category: str = "EXPLICIT_LIMITATION"
 
 
 @dataclass
@@ -132,10 +135,239 @@ def _contains_topic(text_lower: str, topic: str) -> bool:
     return all(stem in sentence_stems for stem in topic_stems)
 
 
+def _evaluate_sentence(
+    sentence: str,
+    paper_title: str,
+    paper_doi: str | None,
+    candidate: GapCandidate,
+    paper_has_t1: bool,
+    paper_has_t2: bool,
+    section: str = "Abstract",
+) -> EvidenceItem | None:
+    s_lower = sentence.casefold()
+    s_has_t1 = _contains_topic(s_lower, candidate.topic_a)
+    s_has_t2 = _contains_topic(s_lower, candidate.topic_b)
+
+    if not (s_has_t1 or s_has_t2):
+        return None
+
+    has_limitation = any(ind in s_lower for ind in LIMITATION_INDICATORS)
+    has_solution = any(ind in s_lower for ind in SOLUTION_INDICATORS)
+    has_contradiction = any(ind in s_lower for ind in CONTRADICTION_INDICATORS)
+
+    both_topics_context = (s_has_t1 and s_has_t2) or (paper_has_t1 and paper_has_t2)
+
+    if both_topics_context:
+        if has_solution:
+            relation = "addresses_already"
+            rationale = "Passage reports a successful solution or effective method addressing this intersection."
+        elif has_contradiction:
+            relation = "contradicts"
+            rationale = "Passage presents contradictory findings or disputes this premise."
+        elif has_limitation:
+            relation = "supports"
+            rationale = "Passage explicitly identifies an open challenge, limitation, or bottleneck connecting both topics."
+        else:
+            relation = "irrelevant"
+            rationale = "Descriptive or background co-occurrence without identifying an unresolved limitation."
+    else:
+        mentioned_topic = candidate.topic_a if s_has_t1 else candidate.topic_b
+        if has_solution:
+            relation = "addresses_already"
+            rationale = f"Passage reports a solution effectively resolving or eliminating the challenge in '{mentioned_topic}'."
+        elif has_limitation:
+            relation = "partially_supports"
+            rationale = f"Identifies a specific limitation in '{mentioned_topic}', but the broader topic intersection is not established in this paper."
+        else:
+            relation = "irrelevant"
+            rationale = f"Descriptive mention of '{mentioned_topic}' without stating an open problem."
+
+    return EvidenceItem(
+        paper_title=paper_title,
+        paper_doi=paper_doi,
+        passage=sentence if sentence.endswith((".", "!", "?")) else sentence + ".",
+        page_number=None,
+        section=section,
+        relation=relation,
+        rationale=rationale,
+    )
+
+
+def extract_evidence_from_corpus(
+    candidate: GapCandidate,
+    papers: Sequence[Paper],
+    project_id: str | None = None,
+) -> list[EvidenceItem]:
+    items: list[EvidenceItem] = []
+    seen_passages: set[str] = set()
+
+    for paper in papers:
+        paper_text = f"{paper.title}. {paper.abstract or ''}".casefold()
+        paper_has_t1 = _contains_topic(paper_text, candidate.topic_a)
+        paper_has_t2 = _contains_topic(paper_text, candidate.topic_b)
+
+        if not (paper_has_t1 or paper_has_t2):
+            continue
+
+        abstract = paper.abstract or ""
+        sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", abstract) if s.strip()]
+
+        for sentence in sentences:
+            item = _evaluate_sentence(
+                sentence=sentence,
+                paper_title=paper.title,
+                paper_doi=paper.doi,
+                candidate=candidate,
+                paper_has_t1=paper_has_t1,
+                paper_has_t2=paper_has_t2,
+                section="Abstract",
+            )
+            if item and item.passage not in seen_passages:
+                seen_passages.add(item.passage)
+                items.append(item)
+
+    if project_id:
+        try:
+            from app.rag.retrieval import retrieve_context
+            query = f"{candidate.topic_a} {candidate.topic_b} limitation challenge drawback bottleneck"
+            chunks = retrieve_context(query=query, limit=12, project_id=project_id)
+            for chunk in chunks:
+                chunk_paper_title = str(chunk.payload.get("title", ""))
+                chunk_doi = chunk.payload.get("doi")
+                chunk_sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", chunk.text) if s.strip()]
+                for sentence in chunk_sentences:
+                    item = _evaluate_sentence(
+                        sentence=sentence,
+                        paper_title=chunk_paper_title,
+                        paper_doi=chunk_doi,
+                        candidate=candidate,
+                        paper_has_t1=True,
+                        paper_has_t2=True,
+                        section="Full-text PDF",
+                    )
+                    if item and item.relation != "irrelevant" and item.passage not in seen_passages:
+                        seen_passages.add(item.passage)
+                        items.append(item)
+        except Exception as exc:
+            logger.debug("Vector store full-text evidence retrieval skipped: %s", exc)
+
+    return items
+
+
+def validate_candidate_gap(
+    candidate: GapCandidate,
+    papers: Sequence[Paper],
+    project_id: str | None = None,
+) -> ValidatedGap:
+    evidence = extract_evidence_from_corpus(candidate, papers, project_id=project_id)
+
+    supporting_evidence = [e for e in evidence if e.relation == "supports"]
+    partially_supporting_evidence = [e for e in evidence if e.relation == "partially_supports"]
+    contradicting_evidence = [e for e in evidence if e.relation in {"addresses_already", "contradicts"}]
+
+    supporting_papers = {e.paper_title for e in supporting_evidence}
+    partially_supporting_papers = {e.paper_title for e in partially_supporting_evidence} - supporting_papers
+    contradicting_papers = {e.paper_title for e in contradicting_evidence}
+
+    corpus_limitations = (
+        f"Evaluated across {len(papers)} indexed publications. "
+        "Evidence evaluated from available publication text/abstracts. "
+        "Findings reflect challenges within this analyzed subset and do not preclude solutions published outside this corpus."
+    )
+
+    if contradicting_papers:
+        status = "unsupported"
+        rationale = (
+            f"Literature indicates that this topic intersection or problem has already been addressed or resolved "
+            f"in {len(contradicting_papers)} paper(s) in the analyzed corpus."
+        )
+        top_passage = contradicting_evidence[0].passage.strip()
+        if top_passage.endswith("."):
+            top_passage = top_passage[:-1]
+        statement = (
+            f"Topic intersection '{candidate.topic_a.title()}' ↔ '{candidate.topic_b.title()}' has already been "
+            f"addressed in existing literature: \"{top_passage}.\""
+        )
+    elif len(supporting_papers) >= 2:
+        status = "supported"
+        rationale = (
+            f"Cross-paper evidence from {len(supporting_papers)} independent publications corroborates that this specific "
+            f"issue remains an unresolved challenge in the analyzed corpus."
+        )
+        top_passage = supporting_evidence[0].passage.strip()
+        if top_passage.endswith("."):
+            top_passage = top_passage[:-1]
+        statement = (
+            f"Unresolved research gap connecting '{candidate.topic_a.title()}' and '{candidate.topic_b.title()}': "
+            f"Multiple independent publications identify this open challenge, noting: \"{top_passage}.\""
+        )
+    elif len(supporting_papers) == 1:
+        status = "partially_supported"
+        top_passage = supporting_evidence[0].passage.strip()
+        if top_passage.endswith("."):
+            top_passage = top_passage[:-1]
+        if len(papers) == 1:
+            rationale = (
+                "Single-paper observation: Identified from 1 paper in corpus. Cross-paper corroboration cannot "
+                "be established with a single-paper target."
+            )
+            statement = (
+                f"Single-paper observation connecting '{candidate.topic_a.title()}' and '{candidate.topic_b.title()}': "
+                f"Individual source notes: \"{top_passage}.\" Cross-paper corroboration requires multiple independent publications."
+            )
+        else:
+            rationale = (
+                f"Evidence from 1 publication identifies a relevant limitation, but independent corroboration across multiple "
+                f"distinct papers is required to substantiate a robust gap."
+            )
+            statement = (
+                f"Preliminary literature gap connecting '{candidate.topic_a.title()}' and '{candidate.topic_b.title()}': "
+                f"Single-source evidence indicates: \"{top_passage}.\" Broader cross-paper validation across a larger corpus is needed."
+            )
+    elif len(partially_supporting_papers) >= 1:
+        status = "partially_supported"
+        rationale = (
+            f"Partial evidence from {len(partially_supporting_papers)} publication(s) identifies component limitations, "
+            f"but no publication explicitly connects both topics in a unified gap statement."
+        )
+        top_passage = partially_supporting_evidence[0].passage.strip()
+        if top_passage.endswith("."):
+            top_passage = top_passage[:-1]
+        statement = (
+            f"Component limitation touching '{candidate.topic_a.title()}' and '{candidate.topic_b.title()}': "
+            f"Literature notes: \"{top_passage}.\" The problem requires narrowing and multi-paper corroboration."
+        )
+    else:
+        status = "inconclusive"
+        rationale = (
+            f"The analyzed corpus mentions these concepts as descriptive background without substantiating an open "
+            f"limitation or unresolved challenge. Co-occurrence alone does not establish a research gap."
+        )
+        statement = (
+            f"No sufficiently supported gap identified in the current corpus for '{candidate.topic_a.title()}' ↔ "
+            f"'{candidate.topic_b.title()}'. Literature mentions the concepts without reporting an unresolved limitation."
+        )
+
+    informative_evidence = [e for e in evidence if e.relation != "irrelevant"]
+    if not informative_evidence and evidence:
+        informative_evidence = evidence[:2]
+
+    return ValidatedGap(
+        topic_a=candidate.topic_a,
+        topic_b=candidate.topic_b,
+        statement=statement,
+        co_occurrence_score=candidate.co_occurrence_score,
+        validation_status=status,
+        confidence_rationale=rationale,
+        evidence_items=informative_evidence[:10],
+        supporting_paper_count=len(supporting_papers),
+        contradicting_paper_count=len(contradicting_papers),
+        total_corpus_papers=len(papers),
+        corpus_limitations=corpus_limitations,
+    )
+
+
 def _parse_source_location(loc: str) -> tuple[int | None, str | None]:
-    """
-    Parses 'Section: Results, Page 4' into (4, 'Results').
-    """
     page_match = re.search(r"Page\s+(\d+)", loc, re.IGNORECASE)
     page_num = int(page_match.group(1)) if page_match else None
 
@@ -164,27 +396,10 @@ def formulate_and_validate_scientific_gaps(
     dt_candidates: Sequence[GapCandidate] = (),
     project_id: str | None = None,
 ) -> list[ValidatedGap]:
-    """
-    Primary scientific research gap formulation and cross-paper validation pipeline:
-    1. Collects explicit limitations and evidence-derived limitations from paper analyses.
-    2. Clusters similar limitations into concrete technical themes.
-    3. Challenges candidates against the entire corpus (retrieving supporting, resolving, and contradicting evidence).
-    4. Enforces honest status: SUPPORTED (2+ distinct papers), PARTIALLY SUPPORTED (1 paper or narrower issue),
-       UNSUPPORTED (addressed/contradicted), or SINGLE-PAPER OBSERVATION (1 paper target).
-    5. Formulates precise gap statements answering the 6 technical questions.
-    6. Removes arbitrary validation percentages.
-    """
     total_papers = len(papers)
     if not paper_analyses or total_papers == 0:
         return []
 
-    # Map candidate keywords from double-threshold candidates for correlation
-    dt_map: dict[str, GapCandidate] = {}
-    for dt in dt_candidates:
-        key_pair = f"{dt.topic_a.lower()}|{dt.topic_b.lower()}"
-        dt_map[key_pair] = dt
-
-    # Group findings across papers into concrete technical problem themes
     THEMES = [
         {
             "id": "generalization_multi_center",
@@ -238,7 +453,6 @@ def formulate_and_validate_scientific_gaps(
         theme_keywords = theme["keywords"]
         supporting_findings: list[tuple[PaperAnalysis, Any]] = []
 
-        # Find which papers provide explicit or evidence-derived limitations for this theme
         for pa in paper_analyses:
             matching_findings = [
                 f for f in pa.findings
@@ -251,11 +465,9 @@ def formulate_and_validate_scientific_gaps(
         if not supporting_findings:
             continue
 
-        # Distinct supporting papers
         distinct_supporting_titles = {pa.paper_title for pa, _ in supporting_findings}
         supporting_count = len(distinct_supporting_titles)
 
-        # Build supporting evidence items
         evidence_items: list[EvidenceItem] = []
         seen_passages: set[str] = set()
 
@@ -278,7 +490,6 @@ def formulate_and_validate_scientific_gaps(
                 )
             )
 
-        # Challenge the candidate against the corpus for prior work / solutions / contradictions
         contradicting_titles: set[str] = set()
         for p in papers:
             p_text = f"{p.title}. {p.abstract or ''}".lower()
@@ -306,7 +517,6 @@ def formulate_and_validate_scientific_gaps(
 
         contradicting_count = len(contradicting_titles)
 
-        # Formulate status and confidence rationale
         if contradicting_count > 0:
             status = "unsupported"
             rationale = (
@@ -335,7 +545,6 @@ def formulate_and_validate_scientific_gaps(
             status = "inconclusive"
             rationale = "Available literature mentions these concepts without substantiating an open technical limitation."
 
-        # Find matching double-threshold candidate if exists to preserve co-occurrence score
         co_score = 0.0
         for cand in dt_candidates:
             if (
@@ -346,7 +555,6 @@ def formulate_and_validate_scientific_gaps(
                 co_score = cand.co_occurrence_score
                 break
 
-        # Synthesize technical gap statement answering the 6 questions
         top_passage = evidence_items[0].passage if evidence_items else "Identified limitation in paper results."
         gap_statement = (
             f"Technical Research Gap: {theme['title']}. "
@@ -383,105 +591,7 @@ def formulate_and_validate_scientific_gaps(
             )
         )
 
-    # Sort gaps: supported first, then partially_supported, then unsupported/inconclusive
     status_order = {"supported": 0, "partially_supported": 1, "single_paper_observation": 1, "unsupported": 2, "inconclusive": 3}
     validated_gaps.sort(key=lambda g: (status_order.get(g.validation_status.lower(), 4), -g.supporting_paper_count, -g.co_occurrence_score))
 
     return validated_gaps
-
-
-def validate_candidate_gap(
-    candidate: GapCandidate,
-    papers: Sequence[Paper],
-    project_id: str | None = None,
-) -> ValidatedGap:
-    """
-    Backwards-compatible candidate validator for double-threshold topic pairs.
-    """
-    total_papers = len(papers)
-    evidence: list[EvidenceItem] = []
-    seen: set[str] = set()
-
-    for p in papers:
-        p_text = f"{p.title}. {p.abstract or ''}".lower()
-        has_t1 = _contains_topic(p_text, candidate.topic_a)
-        has_t2 = _contains_topic(p_text, candidate.topic_b)
-        if not (has_t1 or has_t2):
-            continue
-
-        sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", p.abstract or "") if s.strip()]
-        for s in sentences:
-            s_lower = s.lower()
-            s_has_t1 = _contains_topic(s_lower, candidate.topic_a)
-            s_has_t2 = _contains_topic(s_lower, candidate.topic_b)
-            if not (s_has_t1 or s_has_t2):
-                continue
-
-            has_lim = any(ind in s_lower for ind in LIMITATION_INDICATORS)
-            has_sol = any(ind in s_lower for ind in SOLUTION_INDICATORS)
-            has_con = any(ind in s_lower for ind in CONTRADICTION_INDICATORS)
-
-            if has_sol:
-                rel = "addresses_already"
-                rat = "Passage reports a solution effectively resolving this intersection."
-            elif has_con:
-                rel = "contradicts"
-                rat = "Passage presents contradictory findings."
-            elif has_lim:
-                rel = "supports" if (s_has_t1 and s_has_t2) else "partially_supports"
-                rat = "Passage explicitly identifies an open limitation connecting topics."
-            else:
-                rel = "irrelevant"
-                rat = "Descriptive mention without stating an open problem."
-
-            if s not in seen:
-                seen.add(s)
-                evidence.append(
-                    EvidenceItem(
-                        paper_title=p.title,
-                        paper_doi=p.doi,
-                        passage=s,
-                        page_number=None,
-                        section="Abstract",
-                        relation=rel,
-                        rationale=rat,
-                    )
-                )
-
-    supporting = [e for e in evidence if e.relation == "supports"]
-    partially = [e for e in evidence if e.relation == "partially_supports"]
-    contradicting = [e for e in evidence if e.relation in {"addresses_already", "contradicts"}]
-
-    sup_papers = {e.paper_title for e in supporting}
-    con_papers = {e.paper_title for e in contradicting}
-
-    if con_papers:
-        st = "unsupported"
-        rat = f"Addressed or contradicted in {len(con_papers)} paper(s) in examined corpus."
-        statement = f"Topic intersection '{candidate.topic_a.title()}' ↔ '{candidate.topic_b.title()}' has already been addressed in literature."
-    elif len(sup_papers) >= 2:
-        st = "supported"
-        rat = f"Corroborated by {len(sup_papers)} independent publications in corpus."
-        statement = f"Unresolved research gap connecting '{candidate.topic_a.title()}' and '{candidate.topic_b.title()}': Multiple independent sources identify open limitation."
-    elif len(sup_papers) == 1:
-        st = "partially_supported"
-        rat = "Identified in 1 publication; independent cross-paper corroboration needed."
-        statement = f"Preliminary literature gap connecting '{candidate.topic_a.title()}' and '{candidate.topic_b.title()}': Single-source observation."
-    else:
-        st = "inconclusive"
-        rat = "Descriptive background mention without substantiated open limitation."
-        statement = f"No sufficiently supported gap identified in current corpus for '{candidate.topic_a.title()}' ↔ '{candidate.topic_b.title()}'."
-
-    return ValidatedGap(
-        topic_a=candidate.topic_a,
-        topic_b=candidate.topic_b,
-        statement=statement,
-        co_occurrence_score=candidate.co_occurrence_score,
-        validation_status=st,
-        confidence_rationale=rat,
-        evidence_items=[e for e in evidence if e.relation != "irrelevant"][:8],
-        supporting_paper_count=len(sup_papers),
-        contradicting_paper_count=len(con_papers),
-        total_corpus_papers=total_papers,
-        corpus_limitations=f"Evaluated across {total_papers} indexed publications.",
-    )

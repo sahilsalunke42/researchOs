@@ -110,6 +110,8 @@ class ResearchGraphState(TypedDict, total=False):
 
 
 def _discover_papers_node(state: ResearchGraphState) -> ResearchGraphState:
+    if state.get("papers"):
+        return {"papers": state["papers"]}
     topic = str(state["topic"]).strip()
     limit = int(state.get("paper_limit", 5))
     logger.info("LangGraph node=discover topic=%r limit=%d", topic, limit)
@@ -276,6 +278,7 @@ def run_research(
     user_id: str | None = None,
     alpha: float = 0.15,
     beta: float = 0.65,
+    papers: list[Paper] | None = None,
 ) -> ResearchResponse:
     logger.info(
         "Running research workflow topic=%r paper_limit=%d project_id=%r alpha=%.2f beta=%.2f",
@@ -285,16 +288,18 @@ def run_research(
         alpha,
         beta,
     )
-    graph_result = RESEARCH_GRAPH.invoke(
-        {
-            "topic": topic.strip(),
-            "paper_limit": paper_limit,
-            "project_id": project_id,
-            "user_id": user_id,
-            "alpha": alpha,
-            "beta": beta,
-        },
-    )
+    initial_state: dict[str, Any] = {
+        "topic": topic.strip(),
+        "paper_limit": paper_limit,
+        "project_id": project_id,
+        "user_id": user_id,
+        "alpha": alpha,
+        "beta": beta,
+    }
+    if papers:
+        initial_state["papers"] = list(papers)
+
+    graph_result = RESEARCH_GRAPH.invoke(initial_state)
     ingestion = graph_result.get("ingestion")
     if ingestion is None:
         ingestion = _to_ingest_response(topic.strip(), [])

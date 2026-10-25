@@ -340,6 +340,9 @@ def analyze_paper_content(
 
     # 4. Extract Category A: Explicit limitations (Authors directly state)
     lim_sections = sections_map.get("limitations", []) + sections_map.get("discussion", []) + sections_map.get("conclusion", [])
+    if not lim_sections:
+        lim_sections = [(p.page_number, p.text) for p in pages]
+
     for page_num, text_block in lim_sections:
         sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text_block) if s.strip()]
         for s in sentences:
@@ -365,16 +368,19 @@ def analyze_paper_content(
                 future_work.append(f"[Page {page_num}] {s}")
 
     # 5. Extract Category B: Evidence-derived limitations (Results or design support a concrete limitation)
-    # Scan results and error analysis sections for concrete empirical weaknesses:
+    res_blocks = sections_map.get("results", []) + sections_map.get("discussion", [])
+    if not res_blocks:
+        res_blocks = [(p.page_number, p.text) for p in pages]
+
     # 5a. Thin vessel / small object recovery
     has_thin_vessel_evidence = False
-    for page_num, text_block in sections_map.get("results", []) + sections_map.get("discussion", []):
+    for page_num, text_block in res_blocks:
         sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text_block) if s.strip()]
         for s in sentences:
             s_lower = s.lower()
             # Must have vessel-width specific metric or qualitative error analysis
             if any(term in s_lower for term in ["thin vessel", "thin structure", "small vessel", "microvascular", "capillary"]) and any(
-                metric_drop in s_lower for metric_drop in ["lower sensitivity", "drop", "degrade", "poorly segmented", "missed", "lower dice", "disconnected", "false negative", "challenging to trace"]
+                metric_drop in s_lower for metric_drop in ["lower sensitivity", "drop", "drops", "degrade", "poorly segmented", "missed", "lower dice", "disconnected", "false negative", "challenging to trace"]
             ):
                 has_thin_vessel_evidence = True
                 findings.append(
@@ -393,10 +399,14 @@ def analyze_paper_content(
     # 5b. Dataset diversity and external validation
     # If the paper only evaluates on 1 public benchmark (e.g. DRIVE) without independent multi-center validation
     eval_text = " ".join([t for _, t in sections_map.get("experiments", []) + sections_map.get("results", [])]).lower()
+    if not eval_text:
+        eval_text = " ".join([p.text for p in pages]).lower()
+    eval_text += " " + (paper.abstract or "").lower()
+
     datasets_tested = [k for k in KNOWN_DATASETS.keys() if re.search(r"\b" + re.escape(k) + r"\b", eval_text)]
     if len(datasets_tested) == 1:
         single_ds_name = datasets_tested[0].upper()
-        first_exp_page = sections_map.get("experiments", [(1, "")])[0][0]
+        first_exp_page = sections_map["experiments"][0][0] if sections_map.get("experiments") else (pages[0].page_number if pages else 1)
         findings.append(
             ExtractedFinding(
                 problem_statement=f"Evaluation restricted to single benchmark ({single_ds_name}) without independent external cross-dataset or cross-device validation.",
@@ -411,7 +421,7 @@ def analyze_paper_content(
         )
 
     # 5c. Minority class / rare pathology performance
-    for page_num, text_block in sections_map.get("results", []) + sections_map.get("discussion", []):
+    for page_num, text_block in res_blocks:
         sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text_block) if s.strip()]
         for s in sentences:
             s_lower = s.lower()
@@ -432,7 +442,7 @@ def analyze_paper_content(
                 )
 
     # 5d. Computational complexity and latency
-    for page_num, text_block in sections_map.get("results", []) + sections_map.get("discussion", []):
+    for page_num, text_block in res_blocks:
         sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text_block) if s.strip()]
         for s in sentences:
             s_lower = s.lower()
