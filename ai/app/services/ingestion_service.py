@@ -16,7 +16,7 @@ import requests
 from app.config.settings import QDRANT_COLLECTION
 from app.rag.chunking import chunk_text, strip_references
 from app.rag.embeddings import generate_embeddings_batch
-from app.rag.ingestion import extract_pdf_text
+from app.rag.ingestion import PDFPage, extract_pdf_pages, extract_pdf_text
 from app.security.document_safety import validate_download_url
 from app.services.paper_service import Paper, dedupe_papers
 from app.vectordb.qdrantClient import client
@@ -25,6 +25,13 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_COLLECTION_NAME = QDRANT_COLLECTION
 MAX_PDF_SIZE_BYTES = 25 * 1024 * 1024  # 25 MB max
+
+PAPER_CONTENT_REGISTRY: dict[str, list[PDFPage]] = {}
+
+
+def get_paper_pages(paper: Paper) -> list[PDFPage] | None:
+    return PAPER_CONTENT_REGISTRY.get(paper_key(paper))
+
 
 
 @dataclass(frozen=True)
@@ -60,6 +67,8 @@ def clean_extracted_text(text: str) -> str:
 def _paper_from_pdf_url(paper: Paper, pdf_url: str | None) -> str:
     if pdf_url:
         return pdf_url
+    if getattr(paper, "pdf_url", None):
+        return paper.pdf_url
     if paper.url and paper.url.lower().endswith(".pdf"):
         return paper.url
     if paper.source == "arxiv":
@@ -79,7 +88,11 @@ def _paper_from_pdf_url(paper: Paper, pdf_url: str | None) -> str:
 def download_pdf(url: str, destination: Path, timeout: int = 30) -> Path:
     # SSRF guard: validates scheme, hostname, DNS resolution and blocks private/loopback CIDRs
     safe_url = validate_download_url(url)
-    response = requests.get(safe_url, stream=True, timeout=timeout)
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 ResearchOS/1.0",
+        "Accept": "application/pdf,application/xhtml+xml,text/html;q=0.9,*/*;q=0.8",
+    }
+    response = requests.get(safe_url, headers=headers, stream=True, timeout=timeout)
     response.raise_for_status()
 
     content_length = response.headers.get("Content-Length")
@@ -135,6 +148,8 @@ def build_payload(
     chunk_text_value: str,
     project_id: str | None = None,
     user_id: str | None = None,
+    page_number: int | None = None,
+    section: str | None = None,
 ) -> dict[str, Any]:
     return {
         "paper_key": paper_key(paper),
@@ -152,6 +167,8 @@ def build_payload(
         "text": chunk_text_value,
         "project_id": project_id,
         "user_id": user_id,
+        "page_number": page_number,
+        "section": section,
     }
 
 
@@ -164,16 +181,27 @@ def prepare_points(
     overlap: int = 120,
     project_id: str | None = None,
     user_id: str | None = None,
+    pages: list[PDFPage] | None = None,
 ) -> list[PointStruct]:
-    cleaned_text = clean_extracted_text(text)
-    chunks = chunk_text(cleaned_text, chunk_size=chunk_size, overlap=overlap)
-    if not chunks:
+    chunks_with_meta: list[tuple[str, int | None, str | None]] = []
+    if pages:
+        for page in pages:
+            cleaned = clean_extracted_text(page.text)
+            page_chunks = chunk_text(cleaned, chunk_size=chunk_size, overlap=overlap)
+            for c in page_chunks:
+                chunks_with_meta.append((c, page.page_number, "Full-text PDF"))
+    else:
+        cleaned_text = clean_extracted_text(text)
+        chunks = chunk_text(cleaned_text, chunk_size=chunk_size, overlap=overlap)
+        chunks_with_meta = [(c, None, "Abstract") for c in chunks]
+
+    if not chunks_with_meta:
         return []
 
-    total_chunks = len(chunks)
-    vectors = generate_embeddings_batch(chunks)
+    total_chunks = len(chunks_with_meta)
+    vectors = generate_embeddings_batch([item[0] for item in chunks_with_meta])
     points: list[PointStruct] = []
-    for index, (chunk, vector) in enumerate(zip(chunks, vectors, strict=True), start=1):
+    for index, ((chunk, page_num, sec), vector) in enumerate(zip(chunks_with_meta, vectors, strict=True), start=1):
         payload = build_payload(
             paper,
             source_url=source_url,
@@ -182,6 +210,8 @@ def prepare_points(
             chunk_text_value=chunk,
             project_id=project_id,
             user_id=user_id,
+            page_number=page_num,
+            section=sec,
         )
         points.append(
             PointStruct(
@@ -205,6 +235,8 @@ def ingest_pdf_file(
     user_id: str | None = None,
 ) -> IngestionResult:
     path = Path(pdf_path)
+    pages = extract_pdf_pages(path)
+    PAPER_CONTENT_REGISTRY[paper_key(paper)] = pages
     text = extract_pdf_text(path)
     resolved_source_url = source_url or str(path)
     points = prepare_points(
@@ -215,6 +247,7 @@ def ingest_pdf_file(
         overlap=overlap,
         project_id=project_id,
         user_id=user_id,
+        pages=pages,
     )
     if not points:
         return IngestionResult(paper_key=paper_key(paper), chunk_count=0, point_ids=(), source_url=resolved_source_url)
@@ -227,8 +260,8 @@ def ingest_pdf_file(
         client.upsert(collection_name=collection_name, points=new_points)
     return IngestionResult(
         paper_key=paper_key(paper),
-        chunk_count=len(new_points),
-        point_ids=tuple(str(point.id) for point in new_points),
+        chunk_count=len(points),
+        point_ids=tuple(str(point.id) for point in points),
         source_url=resolved_source_url,
     )
 

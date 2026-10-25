@@ -296,6 +296,7 @@ def fetch_arxiv(query: str, limit: int = 5) -> list[Paper]:
                         "url": result.entry_id,
                         "abstract": result.summary,
                         "external_id": result.entry_id,
+                        "pdf_url": result.pdf_url,
                     },
                     source="arxiv",
                 )
@@ -342,6 +343,7 @@ def fetch_papers(query: str, limit: int = 5) -> list[Paper]:
                     abstract=paper.abstract,
                     external_id=paper.external_id,
                     relevance_score=score,
+                    pdf_url=paper.pdf_url,
                 )
             )
 

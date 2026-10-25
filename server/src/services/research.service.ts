@@ -225,6 +225,54 @@ export const researchService = {
               await prisma.project.update({ where: { id: projectId }, data: { status: 'ANALYZING' } });
               this.emitEvent(projectId, 'stage.updated', { stage: 'ANALYSIS', status: 'RUNNING' });
             } else if (event.status === 'COMPLETE') {
+              if (event.paper_analyses && Array.isArray(event.paper_analyses)) {
+                for (const analysis of event.paper_analyses) {
+                  const paper = await prisma.paper.findFirst({
+                    where: {
+                      projectId,
+                      OR: [
+                        { title: { contains: analysis.paper_title?.slice(0, 30) || '', mode: 'insensitive' } },
+                        { doi: analysis.paper_doi || undefined }
+                      ]
+                    }
+                  });
+                  if (paper) {
+                    await prisma.paper.update({
+                      where: { id: paper.id },
+                      data: {
+                        summaryProblem: analysis.research_objective,
+                        summaryMethod: analysis.proposed_method,
+                        summaryDataset: analysis.dataset_info,
+                        summaryResults: analysis.experimental_setup,
+                        summaryLimits: analysis.limitations_summary,
+                      }
+                    });
+                    await prisma.paperComparison.upsert({
+                      where: { projectId_paperId: { projectId, paperId: paper.id } },
+                      create: {
+                        projectId,
+                        paperId: paper.id,
+                        question: analysis.research_objective,
+                        methodology: analysis.proposed_method,
+                        dataset: analysis.dataset_info,
+                        metrics: analysis.experimental_setup,
+                        findings: analysis.research_objective,
+                        limitations: analysis.limitations_summary,
+                        futureWork: analysis.future_work_summary,
+                      },
+                      update: {
+                        question: analysis.research_objective,
+                        methodology: analysis.proposed_method,
+                        dataset: analysis.dataset_info,
+                        metrics: analysis.experimental_setup,
+                        findings: analysis.research_objective,
+                        limitations: analysis.limitations_summary,
+                        futureWork: analysis.future_work_summary,
+                      }
+                    });
+                  }
+                }
+              }
               this.emitEvent(projectId, 'stage.updated', { stage: 'ANALYSIS', status: 'COMPLETE' });
             }
           } else if (event.stage === 'GAPS') {
@@ -251,6 +299,8 @@ export const researchService = {
                         paperTitle: e.paper_title,
                         paperDoi: e.paper_doi,
                         passage: e.passage,
+                        pageNumber: typeof e.page_number === 'number' ? e.page_number : null,
+                        sectionTitle: e.section || null,
                         relation: relationMap[e.relation?.toLowerCase()] || 'UNCLEAR'
                       }))
                     }
@@ -410,10 +460,12 @@ export const researchService = {
               beta: 0.65,
               validationStatus,
               evidence: {
-                create: (gap.evidence_items || []).map((e) => ({
+                create: (gap.evidence_items || []).map((e: any) => ({
                   paperTitle: e.paper_title,
                   paperDoi: e.paper_doi,
                   passage: e.passage,
+                  pageNumber: typeof e.page_number === 'number' ? e.page_number : null,
+                  sectionTitle: e.section || null,
                   relation: relationMap[e.relation?.toLowerCase()] || 'UNCLEAR'
                 }))
               }
