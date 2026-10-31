@@ -82,11 +82,11 @@ export default function LibraryPage() {
   }, [papers, search, sourceFilter]);
 
   return (
-    <div className="space-y-6">
-      <div>
+    <div className="space-y-6 animate-in fade-in-50 duration-200">
+      <div className="pb-4 border-b border-border">
         <h1 className="text-2xl font-bold tracking-tight text-text-primary">Research Library</h1>
-        <p className="text-xs text-text-muted mt-1">
-          Aggregated academic literature indexed across all active and completed research projects
+        <p className="text-xs text-text-muted mt-1 font-mono">
+          Aggregated scientific pre-prints indexed across active and completed research projects
         </p>
       </div>
 
@@ -94,76 +94,83 @@ export default function LibraryPage() {
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-2.5 h-4 w-4 text-text-muted" />
           <Input
-            placeholder="Search library by title, author, or project..."
+            placeholder="Filter library by title, author, or project..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-9 bg-bg-surface text-sm"
+            className="pl-9 bg-bg-surface text-xs h-9"
           />
         </div>
 
-        <div className="flex items-center gap-1.5 text-xs">
-          <span className="text-text-muted mr-1">Source:</span>
-          {(['ALL', 'SEMANTIC_SCHOLAR', 'ARXIV'] as const).map((s) => (
-            <button
-              key={s}
-              onClick={() => setSourceFilter(s)}
-              className={cn(
-                'px-2.5 py-1 rounded transition-colors',
-                sourceFilter === s
-                  ? 'bg-accent text-text-primary font-medium'
-                  : 'bg-bg-subtle text-text-muted hover:text-text-primary'
-              )}
-            >
-              {s === 'ALL' ? 'All' : s === 'SEMANTIC_SCHOLAR' ? 'Semantic Scholar' : 'arXiv'}
-            </button>
-          ))}
+        <div className="flex items-center gap-1.5 text-xs font-mono">
+          <span className="text-text-muted text-[11px] uppercase mr-1">Source:</span>
+          {(['ALL', 'SEMANTIC_SCHOLAR', 'ARXIV'] as const).map((s) => {
+            const isActive = sourceFilter === s;
+            return (
+              <button
+                key={s}
+                onClick={() => setSourceFilter(s)}
+                className={cn(
+                  'px-2.5 py-1 rounded text-xs transition-colors',
+                  isActive
+                    ? 'bg-accent text-white font-medium shadow-sm'
+                    : 'bg-bg-subtle text-text-muted hover:text-text-primary border border-border'
+                )}
+              >
+                {s === 'ALL' ? 'All' : s === 'SEMANTIC_SCHOLAR' ? 'Semantic Scholar' : 'arXiv'}
+              </button>
+            );
+          })}
         </div>
       </div>
 
       {loading ? (
-        <div className="py-12 text-center text-sm text-text-muted">Loading research library...</div>
+        <div className="p-12 text-center text-xs font-mono text-text-muted animate-pulse">
+          Loading indexed research literature...
+        </div>
       ) : papers.length === 0 ? (
-        <div className="p-8 text-center rounded-lg border border-border bg-bg-surface text-text-muted">
-          <BookOpen className="mx-auto h-8 w-8 text-text-muted opacity-50 mb-2" />
-          <p className="font-medium text-text-primary">No papers in library</p>
-          <p className="text-xs mt-1">
+        <div className="p-10 text-center rounded-lg border border-border bg-bg-surface text-text-muted space-y-2">
+          <BookOpen className="mx-auto h-6 w-6 text-text-muted/60" />
+          <p className="font-semibold text-sm text-text-primary">No papers in library</p>
+          <p className="text-xs max-w-md mx-auto leading-relaxed">
             Papers discovered during project research pipelines will automatically appear here.
           </p>
-          <Link
-            href="/projects"
-            className="inline-flex items-center gap-1.5 text-xs font-semibold text-accent hover:underline mt-4"
-          >
-            Go to Projects <ArrowRight className="h-3.5 w-3.5" />
-          </Link>
+          <div className="pt-2">
+            <Link
+              href="/projects"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-accent hover:underline"
+            >
+              Go to Projects <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
         </div>
       ) : (
         <div className="space-y-3">
-          <div className="text-xs text-text-muted">
-            Showing {filtered.length} of {papers.length} distinct research papers
+          <div className="text-xs text-text-muted font-mono">
+            Showing <span className="tabular-nums font-semibold text-text-primary">{filtered.length}</span> of <span className="tabular-nums">{papers.length}</span> distinct papers
           </div>
 
-          <div className="divide-y divide-border rounded-lg border border-border bg-bg-surface overflow-hidden">
+          <div className="divide-y divide-border rounded-lg border border-border bg-bg-surface overflow-hidden shadow-sm">
             {filtered.map((paper) => (
               <div key={paper.id} className="p-4 transition-colors hover:bg-bg-subtle/30 space-y-2">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="space-y-1 flex-1">
+                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+                  <div className="space-y-1.5 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span
                         className={cn(
-                          'text-[11px] px-2 py-0.5 rounded font-mono uppercase',
+                          'text-[10px] px-2 py-0.5 rounded font-mono font-medium uppercase border',
                           paper.source === 'ARXIV'
-                            ? 'bg-accent-amber/15 text-accent-amber'
-                            : 'bg-accent/15 text-accent'
+                            ? 'bg-accent-amber/15 text-accent-amber border-accent-amber/20'
+                            : 'bg-accent/15 text-accent border-accent/20'
                         )}
                       >
                         {paper.source === 'SEMANTIC_SCHOLAR' ? 'Semantic Scholar' : paper.source}
                       </span>
                       {paper.year && (
-                        <span className="text-xs text-text-muted font-mono">{paper.year}</span>
+                        <span className="text-xs text-text-muted font-mono tabular-nums">{paper.year}</span>
                       )}
                       <Link
                         href={`/projects/${paper.projectId}`}
-                        className="inline-flex items-center gap-1 text-[11px] text-text-muted hover:text-text-primary px-2 py-0.5 rounded bg-bg-subtle border border-border/60"
+                        className="inline-flex items-center gap-1 text-[11px] text-text-muted hover:text-text-primary px-2 py-0.5 rounded bg-bg-subtle border border-border"
                       >
                         <FolderGit2 className="h-3 w-3" />
                         {paper.projectName}
@@ -175,7 +182,7 @@ export default function LibraryPage() {
                     </h3>
 
                     <p className="text-xs text-text-muted">
-                      {paper.authors.length ? paper.authors.join(', ') : 'Unknown'}
+                      {paper.authors.length ? paper.authors.join(', ') : 'Unknown authors'}
                       {paper.venue ? ` • ${paper.venue}` : ''}
                     </p>
                   </div>
@@ -185,9 +192,9 @@ export default function LibraryPage() {
                       href={paper.pdfUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-xs text-accent hover:underline px-2.5 py-1 rounded border border-border bg-bg-subtle shrink-0"
+                      className="inline-flex items-center gap-1 text-xs text-accent hover:underline px-2.5 py-1 rounded border border-border bg-bg-subtle shrink-0 font-mono"
                     >
-                      <ExternalLink className="h-3.5 w-3.5" />
+                      <ExternalLink className="h-3 w-3" />
                       PDF
                     </a>
                   )}

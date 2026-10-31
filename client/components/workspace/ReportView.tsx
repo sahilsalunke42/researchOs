@@ -316,7 +316,7 @@ export function ReportView({ projectId }: Props) {
                 </li>
               ),
               blockquote: ({ children }) => (
-                <blockquote className="p-3 pl-4 border-l-4 border-accent bg-bg-subtle/80 rounded-r my-3 text-xs md:text-sm text-text-muted italic">
+                <blockquote className="py-2 pl-4 border-l-2 border-accent/60 my-3 text-xs md:text-sm text-text-muted italic">
                   {children}
                 </blockquote>
               ),

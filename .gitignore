@@ -10,3 +10,10 @@ coverage/
 .DS_Store
 __pycache__/
 *.pyc
+.agent/
+.agents/
+.codex/
+.gemini/
+.impeccable/
+Design.md
+Product.md
